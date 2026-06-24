@@ -1,2 +1,5 @@
 # Godot 4 import/cache
 .godot/
+
+# 웹 내보내기 결과물 (아이폰 테스트용, 재생성 가능)
+build/
