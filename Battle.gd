@@ -157,6 +157,7 @@ func _build_merc() -> void:
 	body.color = Color(0.30, 0.65, 0.95)
 	body.size = Vector2(60, 90)
 	body.position = Vector2(MERC_X, GROUND_Y)
+	body.pivot_offset = Vector2(30, 45)   # 확대/강조가 중심에서 일어나게
 	add_child(body)
 
 	var hp_bg := ColorRect.new()
@@ -296,17 +297,22 @@ func _show_level_up_effect() -> void:
 	# 레벨업 문구 (전투/입력은 막지 않음)
 	levelup_label.text = "레벨 업! %d" % level
 	levelup_label.visible = true
-	levelup_label.modulate.a = 1.0
+	levelup_label.modulate = Color(1, 1, 1, 1)
+	levelup_label.scale = Vector2(0.7, 0.7)
 	var tw := create_tween()
-	tw.tween_interval(0.65)
+	tw.tween_property(levelup_label, "scale", Vector2(1.15, 1.15), 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_interval(0.6)
 	tw.tween_property(levelup_label, "modulate:a", 0.0, 0.3)
 	tw.tween_callback(func() -> void: levelup_label.visible = false)
-	# 용병 강조: 짧게 커졌다 복귀
+	# 용병 강조: 중심에서 크게 부풀었다 복귀 + 금색 번쩍
 	if not merc.is_empty():
 		var b: ColorRect = merc.body
+		b.scale = Vector2.ONE
+		b.modulate = Color(2.2, 1.8, 0.5)   # 금색 번쩍
 		var t2 := create_tween()
-		t2.tween_property(b, "scale", Vector2(1.25, 1.25), 0.12)
-		t2.tween_property(b, "scale", Vector2.ONE, 0.15)
+		t2.tween_property(b, "scale", Vector2(1.7, 1.7), 0.16).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		t2.parallel().tween_property(b, "modulate", Color.WHITE, 0.45)
+		t2.tween_property(b, "scale", Vector2.ONE, 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
 
 
 # ── 검증: TASK_002(골드 강화)와 TASK_003(경험치·레벨업)을 모두 확인 ──
@@ -455,6 +461,7 @@ func _build_levelup_label() -> void:
 	levelup_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	levelup_label.add_theme_font_size_override("font_size", 52)
 	levelup_label.add_theme_color_override("font_color", Color(1.0, 0.92, 0.4))
+	levelup_label.pivot_offset = Vector2(SCREEN.x * 0.5, 40)   # 중심에서 커지게
 	levelup_label.visible = false
 	add_child(levelup_label)
 
