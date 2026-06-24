@@ -16,6 +16,12 @@ const COMBAT_RANGE := 150.0           # 이 거리 안이면 전투 시작
 const RESPAWN_DELAY := 0.7            # 적 처치 후 다음 적까지 대기(초)
 const MERC_DEATH_DELAY := 1.0        # 용병 사망 후 재시작 대기(초)
 
+# ── 성장: 골드와 공격력 강화 (TASK_002) ──────────────────────────
+const GOLD_PER_KILL := 5
+const ATK_UPGRADE_AMOUNT := 2        # 강화 1회당 공격력 증가
+const ATK_UPGRADE_BASE_COST := 20    # 첫 강화 비용
+const ATK_COST_MULTIPLIER := 1.4     # 다음 비용 = 직전 비용 × 1.4
+
 # ── 화면/배치 기준 ────────────────────────────────────────────────
 const SCREEN := Vector2(540, 960)
 const MERC_X := 162.0            # 화면 왼쪽 약 30% 지점
@@ -38,11 +44,19 @@ var elapsed := 0.0
 
 var status_label: Label
 
+# 성장 상태
+var gold := 0
+var atk_upgrade_cost := ATK_UPGRADE_BASE_COST
+var upgrade_button: Button
+var current_enemy_hits := 0   # 현재 적에게 용병이 가한 타격 수
+var first_hits := 0           # 검증용: 첫 적 처치에 든 타격 수
+
 
 func _ready() -> void:
 	verify_mode = "--verify" in OS.get_cmdline_user_args()
 	_build_background()
 	_build_status_label()
+	_build_upgrade_ui()
 	_build_merc()
 	_spawn_enemy()
 	if verify_mode:
@@ -52,6 +66,8 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if verify_mode:
 		elapsed += delta  # time_scale 적용된 게임 시간(초)
+
+	_update_status()
 
 	if merc.state == DEAD:
 		_update_merc_revive(delta)
@@ -78,8 +94,6 @@ func _process(delta: float) -> void:
 			_combat(delta)
 		DEAD:
 			pass
-
-	_update_status()
 
 
 # ── 전진/배경 ────────────────────────────────────────────────────
@@ -170,6 +184,7 @@ func _spawn_enemy() -> void:
 		"atk": ENEMY_ATK, "interval": ENEMY_INTERVAL, "atk_timer": 0.0,
 		"state": WALK,
 	}
+	current_enemy_hits = 0
 	_sync_enemy_ui()
 
 
@@ -200,6 +215,8 @@ func _combat(delta: float) -> void:
 func _attack(attacker: Dictionary, target: Dictionary) -> void:
 	# 피해량 = 공격력 (이번 작업은 단순 계산, 무작위 없음)
 	target.hp = max(0, target.hp - attacker.atk)
+	if attacker == merc:
+		current_enemy_hits += 1
 	_update_hp_bar(target)
 	_lunge(attacker)
 	_flash(target)
@@ -207,8 +224,8 @@ func _attack(attacker: Dictionary, target: Dictionary) -> void:
 
 func _kill_enemy() -> void:
 	kill_count += 1
-	if verify_mode:
-		print("[VERIFY] kill=", kill_count, " t=%.1f" % elapsed)
+	gold += GOLD_PER_KILL
+	var hits := current_enemy_hits
 	# 사망 연출 후 제거
 	var dying := enemy
 	dying.state = DEAD
@@ -223,10 +240,23 @@ func _kill_enemy() -> void:
 	respawn_timer = RESPAWN_DELAY
 	merc.state = WALK
 	merc.atk_timer = 0.0
+	_update_upgrade_ui()
 
-	if verify_mode and kill_count >= 6:
-		print("[VERIFY] PASS kills=", kill_count, " elapsed=%.1f merc_hp=" % elapsed, merc.hp)
+	if not verify_mode:
+		return
+	# ── 검증: 골드를 모아 강화하면 처치 타격 수가 줄어드는지 확인 ──
+	if first_hits == 0:
+		first_hits = hits
+	print("[VERIFY] kill=%d hits=%d atk=%d gold=%d" % [kill_count, hits, merc.atk, gold])
+	while gold >= atk_upgrade_cost:
+		_do_upgrade()
+		print("[VERIFY] upgrade -> atk=%d cost=%d gold=%d" % [merc.atk, atk_upgrade_cost, gold])
+	if merc.atk > MERC_ATK and hits < first_hits:
+		print("[VERIFY] PASS kills=%d atk=%d hits=%d(<%d)" % [kill_count, merc.atk, hits, first_hits])
 		get_tree().quit(0)
+	if kill_count >= 60:
+		print("[VERIFY] FAIL no speedup kills=%d atk=%d" % [kill_count, merc.atk])
+		get_tree().quit(1)
 
 
 func _kill_merc() -> void:
@@ -295,4 +325,36 @@ func _update_status() -> void:
 	var enemy_hp := 0
 	if not enemy.is_empty():
 		enemy_hp = enemy.hp
-	status_label.text = "처치 %d   용병 HP %d/%d   적 HP %d" % [kill_count, merc.hp, merc.max_hp, enemy_hp]
+	status_label.text = "골드 %d   처치 %d   용병 HP %d/%d   적 HP %d" % [gold, kill_count, merc.hp, merc.max_hp, enemy_hp]
+
+
+# ── 골드 강화 (TASK_002) ─────────────────────────────────────────
+func _build_upgrade_ui() -> void:
+	upgrade_button = Button.new()
+	upgrade_button.position = Vector2(20, 812)
+	upgrade_button.size = Vector2(500, 116)
+	upgrade_button.add_theme_font_size_override("font_size", 26)
+	upgrade_button.pressed.connect(_on_upgrade_pressed)
+	add_child(upgrade_button)
+	_update_upgrade_ui()
+
+
+func _update_upgrade_ui() -> void:
+	if upgrade_button == null:
+		return
+	var cur_atk: int = merc.atk if not merc.is_empty() else MERC_ATK
+	upgrade_button.text = "공격력 강화   %d → %d\n비용 %d골드   (보유 %d)" % [cur_atk, cur_atk + ATK_UPGRADE_AMOUNT, atk_upgrade_cost, gold]
+	upgrade_button.disabled = gold < atk_upgrade_cost
+
+
+func _on_upgrade_pressed() -> void:
+	if gold < atk_upgrade_cost:
+		return
+	_do_upgrade()
+
+
+func _do_upgrade() -> void:
+	gold -= atk_upgrade_cost
+	merc.atk += ATK_UPGRADE_AMOUNT
+	atk_upgrade_cost = int(round(atk_upgrade_cost * ATK_COST_MULTIPLIER))
+	_update_upgrade_ui()
