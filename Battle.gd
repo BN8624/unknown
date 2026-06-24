@@ -38,6 +38,15 @@ const DEF_UPGRADE_AMOUNT := 1
 const DEF_UPGRADE_BASE_COST := 25
 const DEF_COST_MULTIPLIER := 1.4
 
+# ── 전투 특성 (TASK_005) ─────────────────────────────────────────
+const POWER_MULT := 2.2       # 강타 피해 배율
+const POWER_EVERY := 4        # 4번째 기본 공격마다 강타
+const COMBO_MULT := 0.6       # 연격 추가 베기 배율
+const COMBO_CHANCE := 0.30
+const COUNTER_MULT := 1.2     # 반격 피해 배율
+const COUNTER_REDUCE := 0.6   # 반격 발동 시 받는 피해 (×0.6 = 40% 감소)
+const COUNTER_CHANCE := 0.25
+
 # ── 화면/배치 기준 ────────────────────────────────────────────────
 const SCREEN := Vector2(540, 960)
 const MERC_X := 162.0            # 화면 왼쪽 약 30% 지점
@@ -81,22 +90,48 @@ var exp_bg: ColorRect
 var exp_fill: ColorRect
 var levelup_label: Label
 
+# 전투 특성 상태 (TASK_005)
+var trait_points := 0
+var power_trait_level := 0      # 강타
+var combo_trait_level := 0      # 연격
+var counter_trait_level := 0    # 반격
+var total_trait_points_earned := 0
+var power_attack_counter := 0   # 강타용 기본 공격 카운트
+var rng := RandomNumberGenerator.new()
+var force_combo := 0            # 0=확률, 1=강제 발동, -1=강제 미발동 (검증용)
+var force_counter := 0
+var kfont: Font = null         # 한글 폰트 (런타임 생성 라벨에도 적용)
+
+# 특성 UI
+var trait_button: Button
+var trait_status_label: Label
+var trait_panel: Control
+var trait_title_label: Label
+var power_btn: Button
+var combo_btn: Button
+var counter_btn: Button
+var reset_btn: Button
+var notify_label: Label
+
 # 검증 단계 통과 플래그
 var v_task002 := false
 var v_task003 := false
 var v_damage := false
 var v_hp := false
 var v_def := false
+var v_traits := false
 var v_phase := 0   # 검증 강화 순서: 0=체력, 1=방어력, 2=공격력
 
 
 func _ready() -> void:
 	verify_mode = "--verify" in OS.get_cmdline_user_args()
+	rng.randomize()
 	_build_background()
 	_build_status_label()
 	_build_exp_bar()
 	_build_upgrade_ui()
 	_build_levelup_label()
+	_build_trait_ui()
 	_apply_korean_font()
 	_build_merc()
 	_spawn_enemy()
@@ -241,47 +276,131 @@ func _combat(delta: float) -> void:
 	merc.atk_timer += delta
 	if merc.atk_timer >= merc.interval:
 		merc.atk_timer = 0.0
-		_attack(merc, enemy)
-		if enemy.hp <= 0:
+		_merc_basic_attack()
+		if enemy.is_empty() or enemy.hp <= 0:
 			_kill_enemy()
 			return
 
 	enemy.atk_timer += delta
 	if enemy.atk_timer >= enemy.interval:
 		enemy.atk_timer = 0.0
-		_attack(enemy, merc)
+		_enemy_attack_merc()
 		if merc.hp <= 0:
 			_kill_merc()
+			return
+		if not enemy.is_empty() and enemy.hp <= 0:
+			_kill_enemy()   # 반격으로 적이 죽은 경우
 
 
+# ── 피해 공식 (모두 최소 1) ──────────────────────────────────────
 func _damage(atk: int, target_def: int) -> int:
-	# 최종 피해 = 공격력 - 대상 방어력, 최소 1
 	return maxi(1, atk - target_def)
 
+func _power_damage(atk: int, target_def: int) -> int:
+	return maxi(1, int(round(atk * POWER_MULT)) - target_def)
 
-func _attack(attacker: Dictionary, target: Dictionary) -> void:
-	var dmg := _damage(attacker.atk, target.defense)
-	target.hp = max(0, target.hp - dmg)
-	if attacker == merc:
-		current_enemy_hits += 1
-	_update_hp_bar(target)
-	_lunge(attacker)
-	_flash(target)
-	_show_damage(target, dmg)
+func _combo_damage(atk: int, target_def: int) -> int:
+	return maxi(1, int(round(atk * COMBO_MULT)) - target_def)
+
+func _counter_damage(atk: int, target_def: int) -> int:
+	return maxi(1, int(round(atk * COUNTER_MULT)) - target_def)
+
+func _counter_reduced(base: int) -> int:
+	return maxi(1, int(round(base * COUNTER_REDUCE)))
 
 
-func _show_damage(target: Dictionary, dmg: int) -> void:
-	# 실제 피해 숫자를 대상 근처에 잠깐 띄운다 (공격마다 한 번)
+# 강타 카운트: 4번째 기본 공격이면 true (반격·연격은 호출하지 않음)
+func _consume_power_attack() -> bool:
+	power_attack_counter += 1
+	if power_attack_counter >= POWER_EVERY:
+		power_attack_counter = 0
+		return true
+	return false
+
+
+func _roll_combo() -> bool:
+	if force_combo != 0:
+		return force_combo == 1
+	return rng.randf() < COMBO_CHANCE
+
+func _roll_counter() -> bool:
+	if force_counter != 0:
+		return force_counter == 1
+	return rng.randf() < COUNTER_CHANCE
+
+# 연격 추가 베기가 발동하는 조건 (적이 살아 있어야 함)
+func _combo_would_trigger(enemy_alive: bool) -> bool:
+	return combo_trait_level > 0 and enemy_alive and _roll_combo()
+
+
+func _merc_basic_attack() -> void:
+	# 우선순위: 강타 발동 확인 → 아니면 일반 공격 → 일반일 때만 연격 판정
+	var is_power: bool = power_trait_level > 0 and _consume_power_attack()
+	if is_power:
+		_lunge(merc, 46.0)
+		_enemy_pushback()
+		_deal_to_enemy(_power_damage(merc.atk, enemy.defense), "강타", true)
+		return
+	_lunge(merc)
+	_deal_to_enemy(_damage(merc.atk, enemy.defense), "", false)
+	if _combo_would_trigger(not enemy.is_empty() and enemy.hp > 0):
+		_lunge(merc, 30.0)
+		_deal_to_enemy(_combo_damage(merc.atk, enemy.defense), "추가 베기", false)
+
+
+func _enemy_attack_merc() -> void:
+	var base := _damage(enemy.atk, merc.defense)
+	var did_counter: bool = counter_trait_level > 0 and _roll_counter()
+	var taken := _counter_reduced(base) if did_counter else base
+	merc.hp = max(0, merc.hp - taken)
+	_update_hp_bar(merc)
+	_lunge(enemy)
+	_flash(merc)
+	_show_damage_at(merc, taken, "방어" if did_counter else "", false)
+	# 감소된 피해로도 살아 있으면 즉시 반격
+	if did_counter and merc.hp > 0 and not enemy.is_empty():
+		enemy.hp = max(0, enemy.hp - _counter_damage(merc.atk, enemy.defense))
+		_update_hp_bar(enemy)
+		_lunge(merc)
+		_flash(enemy)
+		_show_damage_at(enemy, _counter_damage(merc.atk, enemy.defense), "반격", false)
+
+
+func _deal_to_enemy(dmg: int, label: String, big: bool) -> void:
+	if enemy.is_empty():
+		return
+	enemy.hp = max(0, enemy.hp - dmg)
+	current_enemy_hits += 1
+	_update_hp_bar(enemy)
+	_flash(enemy)
+	_show_damage_at(enemy, dmg, label, big)
+
+
+func _enemy_pushback() -> void:
+	# 강타 시 적이 짧게 밀렸다 돌아온다
+	if enemy.is_empty():
+		return
+	var b: ColorRect = enemy.body
+	var x0: float = b.position.x
+	var tw := create_tween()
+	tw.tween_property(b, "position:x", x0 + 24.0, 0.08)
+	tw.tween_property(b, "position:x", x0, 0.14)
+
+
+func _show_damage_at(target: Dictionary, dmg: int, label: String, big: bool) -> void:
+	# 실제 피해 숫자(+선택적 특성 문구)를 대상 근처에 잠깐 띄운다 (공격마다 한 번)
 	var b: ColorRect = target.body
 	var lbl := Label.new()
-	lbl.text = "-%d" % dmg
-	lbl.add_theme_font_size_override("font_size", 30)
-	lbl.add_theme_color_override("font_color", Color(1, 1, 1))
-	lbl.position = Vector2(b.position.x + 14, b.position.y - 26)
+	lbl.text = ("%s -%d" % [label, dmg]) if label != "" else "-%d" % dmg
+	lbl.add_theme_font_size_override("font_size", 42 if big else 28)
+	lbl.add_theme_color_override("font_color", Color(1.0, 0.9, 0.4) if big else Color(1, 1, 1))
+	if kfont != null:
+		lbl.add_theme_font_override("font", kfont)
+	lbl.position = Vector2(b.position.x - 6, b.position.y - 30)
 	add_child(lbl)
 	var tw := create_tween()
-	tw.tween_property(lbl, "position:y", lbl.position.y - 34, 0.5)
-	tw.parallel().tween_property(lbl, "modulate:a", 0.0, 0.5)
+	tw.tween_property(lbl, "position:y", lbl.position.y - 36, 0.55)
+	tw.parallel().tween_property(lbl, "modulate:a", 0.0, 0.55)
 	tw.tween_callback(lbl.queue_free)
 
 
@@ -332,6 +451,20 @@ func _level_up() -> void:
 	_update_hp_bar(merc)
 	_update_upgrade_ui()            # 강화 버튼에 현재 공격력 즉시 반영
 	_show_level_up_effect()
+	_update_trait_points()          # 10레벨 단위 도달 시 특성 포인트 지급
+
+
+# ── 전투 특성 포인트 (TASK_005) ──────────────────────────────────
+func _update_trait_points() -> void:
+	# 지급 총합 = 현재 레벨 ÷ 10 (정수). 누락·중복 없이 차이만 지급.
+	var should := level / 10
+	if should > total_trait_points_earned:
+		trait_points += should - total_trait_points_earned
+		total_trait_points_earned = should
+		_update_trait_ui()
+		if not verify_mode:
+			_show_trait_notify()
+			_open_trait_panel()
 
 
 func _show_level_up_effect() -> void:
@@ -434,18 +567,138 @@ func _verify_step(hits: int) -> void:
 				_vfail("atk upgrade gold=%d atk=%d cost=%d" % [gold, merc.atk, atk_upgrade_cost]); return
 			print("[VERIFY] atk upgrade -> atk=%d cost=%d gold=%d 강화횟수=%d" % [merc.atk, atk_upgrade_cost, gold, attack_upgrade_count])
 
-	# 모든 검증 통과 시 종료 코드 0
-	if v_damage and v_hp and v_def and v_task002 and v_task003:
-		print("[VERIFY] ALL PASS kills=%d lv=%d atk=%d def=%d maxhp=%d" % [kill_count, level, merc.atk, merc.defense, merc.max_hp])
+	# 기존 검증 통과 후 TASK_005 특성 검증을 1회 실행한다.
+	if v_damage and v_hp and v_def and v_task002 and v_task003 and not v_traits:
+		_verify_traits()
+	# 특성 검증까지 모두 통과 시 종료 코드 0
+	if v_damage and v_hp and v_def and v_task002 and v_task003 and v_traits:
+		print("[VERIFY] ALL PASS kills=%d lv=%d atk=%d def=%d maxhp=%d (특성 포함)" % [kill_count, level, merc.atk, merc.defense, merc.max_hp])
 		get_tree().quit(0)
 	if kill_count >= 120:
-		_vfail("incomplete dmg=%s hp=%s def=%s t002=%s t003=%s kills=%d" % [str(v_damage), str(v_hp), str(v_def), str(v_task002), str(v_task003), kill_count])
+		_vfail("incomplete dmg=%s hp=%s def=%s t002=%s t003=%s traits=%s kills=%d" % [str(v_damage), str(v_hp), str(v_def), str(v_task002), str(v_task003), str(v_traits), kill_count])
+
+
+# ── TASK_005 특성 검증 (확률 비의존, 강제 발동 경로) ─────────────
+func _verify_traits() -> void:
+	var save_level := level
+
+	# 1) 레벨 10 포인트 지급 + 중복 방지
+	level = 9
+	total_trait_points_earned = 0
+	trait_points = 0
+	_update_trait_points()
+	if total_trait_points_earned != 0 or trait_points != 0:
+		_vfail("lv9 earned=%d pts=%d" % [total_trait_points_earned, trait_points]); return
+	level = 10
+	_update_trait_points()
+	if total_trait_points_earned != 1 or trait_points != 1:
+		_vfail("lv10 grant earned=%d pts=%d" % [total_trait_points_earned, trait_points]); return
+	_update_trait_points()  # 같은 레벨 재호출 → 중복 지급 없어야 함
+	if total_trait_points_earned != 1 or trait_points != 1:
+		_vfail("dup grant earned=%d pts=%d" % [total_trait_points_earned, trait_points]); return
+	print("[VERIFY] trait grant PASS lv10 earned=1 pts=1")
+
+	# 2) 투자 / 무료 초기화
+	var gold_b := gold
+	var exp_b := exp
+	var atk_b: int = merc.atk
+	_invest_power()
+	if power_trait_level != 1 or trait_points != 0:
+		_vfail("invest power lvl=%d pts=%d" % [power_trait_level, trait_points]); return
+	_invest_combo()  # 포인트 0이라 변화 없어야 함
+	if combo_trait_level != 0:
+		_vfail("invest combo with 0pts lvl=%d" % combo_trait_level); return
+	_reset_traits()
+	if power_trait_level != 0 or combo_trait_level != 0 or counter_trait_level != 0 or trait_points != 1 or power_attack_counter != 0:
+		_vfail("reset pwr=%d cmb=%d ctr=%d pts=%d cnt=%d" % [power_trait_level, combo_trait_level, counter_trait_level, trait_points, power_attack_counter]); return
+	if gold != gold_b or exp != exp_b or merc.atk != atk_b:
+		_vfail("reset changed base gold=%d exp=%d atk=%d" % [gold, exp, merc.atk]); return
+	print("[VERIFY] trait invest/reset PASS")
+
+	# 3) 강타: 4번째 기본 공격
+	power_trait_level = 1
+	combo_trait_level = 0
+	counter_trait_level = 0
+	power_attack_counter = 0
+	var seq: Array = []
+	for i in range(5):
+		seq.append(_consume_power_attack())
+	if seq != [false, false, false, true, false]:
+		_vfail("강타 seq=%s" % str(seq)); return
+	var pd := _power_damage(merc.atk, 3)
+	if pd != maxi(1, int(round(merc.atk * POWER_MULT)) - 3):
+		_vfail("강타 dmg=%d" % pd); return
+	print("[VERIFY] 강타 PASS 4타째 발동 dmg(atk%d,def3)=%d" % [merc.atk, pd])
+
+	# 4) 연격: 공식 + 강제 발동/미발동 + 죽은 적 가드
+	var cdv := _combo_damage(merc.atk, 0)
+	if cdv != maxi(1, int(round(merc.atk * COMBO_MULT))):
+		_vfail("연격 dmg=%d" % cdv); return
+	combo_trait_level = 1
+	force_combo = 1
+	if not _combo_would_trigger(true):
+		_vfail("연격 강제발동 실패"); return
+	if _combo_would_trigger(false):  # 첫 공격으로 적이 죽으면 추가 없음
+		_vfail("연격 죽은적 발동"); return
+	force_combo = -1
+	if _combo_would_trigger(true):
+		_vfail("연격 강제미발동 실패"); return
+	force_combo = 0
+	print("[VERIFY] 연격 PASS dmg=%d 강제발동/미발동/죽은적가드" % cdv)
+
+	# 5) 반격: 받는 피해 감소 + 반격 피해 + 강제 발동/미발동
+	var base := _damage(ENEMY_ATK, MERC_DEF)   # 6-2=4
+	var reduced := _counter_reduced(base)       # round(4*0.6)=2
+	if reduced != 2:
+		_vfail("반격 감소피해=%d" % reduced); return
+	var ctd := _counter_damage(merc.atk, 0)
+	if ctd != maxi(1, int(round(merc.atk * COUNTER_MULT))):
+		_vfail("반격 dmg=%d" % ctd); return
+	counter_trait_level = 1
+	force_counter = 1
+	if not _roll_counter():
+		_vfail("반격 강제발동 실패"); return
+	force_counter = -1
+	if _roll_counter():
+		_vfail("반격 강제미발동 실패"); return
+	force_counter = 0
+	print("[VERIFY] 반격 PASS 받는피해 %d→%d 반격피해=%d" % [base, reduced, ctd])
+
+	# 6) 충돌: 강타+연격 동시 → 4번째는 강타만, 연격 미발동
+	power_trait_level = 1
+	combo_trait_level = 1
+	power_attack_counter = 0
+	force_combo = 1
+	var power_on_4th := false
+	var combo_on_4th := false
+	for i in range(4):
+		var is_p := _consume_power_attack() if power_trait_level > 0 else false
+		var combo_this: bool = (not is_p) and _combo_would_trigger(true)
+		if i == 3:
+			power_on_4th = is_p
+			combo_on_4th = combo_this
+	if not power_on_4th or combo_on_4th:
+		_vfail("충돌 4타 강타=%s 연격=%s" % [str(power_on_4th), str(combo_on_4th)]); return
+	print("[VERIFY] 충돌규칙 PASS 4타=강타만(연격 미발동)")
+
+	# 검증으로 바꾼 상태 복원
+	force_combo = 0
+	force_counter = 0
+	power_trait_level = 0
+	combo_trait_level = 0
+	counter_trait_level = 0
+	power_attack_counter = 0
+	level = save_level
+	_update_trait_ui()
+	v_traits = true
+	print("[VERIFY] task005 특성 ALL PASS")
 
 
 func _kill_merc() -> void:
 	merc.state = DEAD
 	merc.body.modulate = Color(0.5, 0.5, 0.5)
 	merc_revive_timer = MERC_DEATH_DELAY
+	power_attack_counter = 0   # 사망 시 강타 카운트 초기화
 	if verify_mode:
 		print("[VERIFY] merc died, reviving")
 
@@ -469,13 +722,13 @@ func _update_merc_revive(delta: float) -> void:
 
 
 # ── 표현(타격감) ─────────────────────────────────────────────────
-func _lunge(unit: Dictionary) -> void:
-	# 공격 순간 앞으로 짧게 움직였다 복귀
+func _lunge(unit: Dictionary, dist: float = 22.0) -> void:
+	# 공격 순간 앞으로 짧게 움직였다 복귀 (강타는 더 크게)
 	var body: ColorRect = unit.body
 	var dir := 1.0 if unit == merc else -1.0
 	var start_x: float = body.position.x
 	var tw := create_tween()
-	tw.tween_property(body, "position:x", start_x + dir * 22.0, 0.07)
+	tw.tween_property(body, "position:x", start_x + dir * dist, 0.07)
 	tw.tween_property(body, "position:x", start_x, 0.10)
 
 
@@ -501,12 +754,15 @@ func _apply_korean_font() -> void:
 	var path := "res://malgun.ttf"
 	if not ResourceLoader.exists(path):
 		return
-	var f: Font = load(path)
-	status_label.add_theme_font_override("font", f)
-	atk_button.add_theme_font_override("font", f)
-	hp_button.add_theme_font_override("font", f)
-	def_button.add_theme_font_override("font", f)
-	levelup_label.add_theme_font_override("font", f)
+	kfont = load(path)
+	_apply_font_recursive(self)
+
+
+func _apply_font_recursive(node: Node) -> void:
+	for c in node.get_children():
+		if c is Label or c is Button:
+			c.add_theme_font_override("font", kfont)
+		_apply_font_recursive(c)
 
 
 func _build_status_label() -> void:
@@ -625,3 +881,172 @@ func _do_def_upgrade() -> void:
 	def_upgrade_cost = int(round(def_upgrade_cost * DEF_COST_MULTIPLIER))
 	def_upgrade_count += 1
 	_update_upgrade_ui()
+
+
+# ── 특성 UI (TASK_005) ───────────────────────────────────────────
+func _build_trait_ui() -> void:
+	trait_status_label = Label.new()
+	trait_status_label.position = Vector2(20, 120)
+	trait_status_label.add_theme_font_size_override("font_size", 22)
+	add_child(trait_status_label)
+
+	trait_button = Button.new()
+	trait_button.position = Vector2(372, 114)
+	trait_button.size = Vector2(148, 50)
+	trait_button.add_theme_font_size_override("font_size", 22)
+	trait_button.pressed.connect(_toggle_trait_panel)
+	add_child(trait_button)
+
+	notify_label = Label.new()
+	notify_label.position = Vector2(0, 430)
+	notify_label.size = Vector2(SCREEN.x, 120)
+	notify_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	notify_label.add_theme_font_size_override("font_size", 27)
+	notify_label.add_theme_color_override("font_color", Color(0.6, 0.95, 1.0))
+	notify_label.visible = false
+	add_child(notify_label)
+
+	_build_trait_panel()
+	_update_trait_ui()
+
+
+func _build_trait_panel() -> void:
+	trait_panel = Control.new()
+	trait_panel.position = Vector2.ZERO
+	trait_panel.size = SCREEN
+	trait_panel.z_index = 50
+	trait_panel.visible = false
+	add_child(trait_panel)
+
+	var bg := ColorRect.new()
+	bg.color = Color(0.05, 0.06, 0.09, 0.96)
+	bg.size = SCREEN
+	trait_panel.add_child(bg)
+
+	trait_title_label = Label.new()
+	trait_title_label.position = Vector2(40, 50)
+	trait_title_label.add_theme_font_size_override("font_size", 26)
+	trait_panel.add_child(trait_title_label)
+
+	_add_trait_desc("강타 — 4번째 기본 공격마다 220% 내려찍기", 130)
+	power_btn = _make_trait_button(175, _invest_power)
+	_add_trait_desc("연격 — 기본 공격 시 30% 확률로 60% 추가 베기", 265)
+	combo_btn = _make_trait_button(310, _invest_combo)
+	_add_trait_desc("반격 — 피격 시 25% 확률로 피해 40% 감소 + 120% 반격", 400)
+	counter_btn = _make_trait_button(445, _invest_counter)
+
+	reset_btn = Button.new()
+	reset_btn.position = Vector2(40, 560)
+	reset_btn.size = Vector2(220, 64)
+	reset_btn.add_theme_font_size_override("font_size", 24)
+	reset_btn.text = "무료 초기화"
+	reset_btn.pressed.connect(_reset_traits)
+	trait_panel.add_child(reset_btn)
+
+	var close_btn := Button.new()
+	close_btn.position = Vector2(280, 560)
+	close_btn.size = Vector2(220, 64)
+	close_btn.add_theme_font_size_override("font_size", 24)
+	close_btn.text = "닫기"
+	close_btn.pressed.connect(_close_trait_panel)
+	trait_panel.add_child(close_btn)
+
+
+func _add_trait_desc(text: String, y: float) -> void:
+	var l := Label.new()
+	l.position = Vector2(40, y)
+	l.size = Vector2(460, 40)
+	l.add_theme_font_size_override("font_size", 20)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.text = text
+	trait_panel.add_child(l)
+
+
+func _make_trait_button(y: float, cb: Callable) -> Button:
+	var b := Button.new()
+	b.position = Vector2(40, y)
+	b.size = Vector2(460, 60)
+	b.add_theme_font_size_override("font_size", 24)
+	b.pressed.connect(cb)
+	trait_panel.add_child(b)
+	return b
+
+
+func _update_trait_ui() -> void:
+	if trait_button == null:
+		return
+	trait_button.text = ("특성 ●%d" % trait_points) if trait_points > 0 else "특성"
+	var names: Array = []
+	if power_trait_level > 0:
+		names.append("강타")
+	if combo_trait_level > 0:
+		names.append("연격")
+	if counter_trait_level > 0:
+		names.append("반격")
+	trait_status_label.text = "특성: " + ("없음" if names.is_empty() else "·".join(names))
+	if trait_title_label == null:
+		return
+	trait_title_label.text = "전투 특성    보유 포인트 %d" % trait_points
+	power_btn.text = "강타  %d/1   [투자]" % power_trait_level
+	power_btn.disabled = trait_points <= 0 or power_trait_level >= 1
+	combo_btn.text = "연격  %d/1   [투자]" % combo_trait_level
+	combo_btn.disabled = trait_points <= 0 or combo_trait_level >= 1
+	counter_btn.text = "반격  %d/1   [투자]" % counter_trait_level
+	counter_btn.disabled = trait_points <= 0 or counter_trait_level >= 1
+	reset_btn.disabled = (power_trait_level + combo_trait_level + counter_trait_level) == 0
+
+
+func _invest_power() -> void:
+	if trait_points > 0 and power_trait_level < 1:
+		power_trait_level = 1
+		trait_points -= 1
+		_update_trait_ui()
+
+
+func _invest_combo() -> void:
+	if trait_points > 0 and combo_trait_level < 1:
+		combo_trait_level = 1
+		trait_points -= 1
+		_update_trait_ui()
+
+
+func _invest_counter() -> void:
+	if trait_points > 0 and counter_trait_level < 1:
+		counter_trait_level = 1
+		trait_points -= 1
+		_update_trait_ui()
+
+
+func _reset_traits() -> void:
+	# 투자 포인트를 모두 보유로 반환하고 전투 카운터 초기화 (무료)
+	trait_points += power_trait_level + combo_trait_level + counter_trait_level
+	power_trait_level = 0
+	combo_trait_level = 0
+	counter_trait_level = 0
+	power_attack_counter = 0
+	_update_trait_ui()
+
+
+func _toggle_trait_panel() -> void:
+	trait_panel.visible = not trait_panel.visible
+	if trait_panel.visible:
+		_update_trait_ui()
+
+
+func _open_trait_panel() -> void:
+	trait_panel.visible = true
+	_update_trait_ui()
+
+
+func _close_trait_panel() -> void:
+	trait_panel.visible = false
+
+
+func _show_trait_notify() -> void:
+	notify_label.text = "전투 특성 포인트 획득!\n강타·연격·반격 중 하나를 선택하세요."
+	notify_label.visible = true
+	notify_label.modulate = Color(1, 1, 1, 1)
+	var tw := create_tween()
+	tw.tween_interval(1.1)
+	tw.tween_property(notify_label, "modulate:a", 0.0, 0.4)
+	tw.tween_callback(func() -> void: notify_label.visible = false)
