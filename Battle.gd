@@ -24,9 +24,15 @@ const ENEMY_PROFILES := {
 	"wolf": {"name": "굶주린 늑대", "max_hp": 32, "atk": 5, "defense": 0, "interval": 0.75, "approach_speed": 230.0, "gold": 5, "exp": 5},
 	"goblin": {"name": "고블린", "max_hp": 22, "atk": 4, "defense": 0, "interval": 1.0, "approach_speed": 200.0, "gold": 4, "exp": 4},
 	"shield": {"name": "방패병", "max_hp": 75, "atk": 8, "defense": 5, "interval": 1.5, "approach_speed": 130.0, "gold": 12, "exp": 10},
+	"ogre": {"name": "오우거 징수꾼", "max_hp": 240, "atk": 16, "defense": 3, "interval": 2.0, "approach_speed": 100.0, "gold": 40, "exp": 30},
 }
-const ENEMY_SEQUENCE := ["wolf", "wolf", "wolf", "goblin", "goblin", "goblin", "shield"]
+const ENEMY_SEQUENCE := ["wolf", "wolf", "wolf", "goblin", "goblin", "goblin", "shield", "ogre"]
 const GOBLIN_SPACING := 82.0        # 무리 고블린 사이 가로 간격(겹치지 않게)
+
+# ── 엘리트: 오우거 징수꾼 (TASK_008) ─────────────────────────────
+const OGRE_HEAVY_MULT := 2.0       # 강공격(3번째) 배율
+const OGRE_HEAVY_EVERY := 3        # 3번째 공격이 강공격
+const OGRE_WINDUP_TIME := 1.0      # 강공격 준비 동작 시간(초)
 
 # ── 성장: 골드와 공격력 강화 (TASK_002) ──────────────────────────
 const GOLD_PER_KILL := 5
@@ -128,6 +134,7 @@ var combo_btn: Button
 var counter_btn: Button
 var reset_btn: Button
 var notify_label: Label
+var windup_label: Label   # 오우거 강공격 준비 문구
 
 # 검증 단계 통과 플래그
 var v_task002 := false
@@ -137,6 +144,7 @@ var v_hp := false
 var v_def := false
 var v_traits := false
 var v_enemies := false
+var v_ogre := false
 var v_phase := 0   # 검증 강화 순서: 0=체력, 1=방어력, 2=공격력
 
 
@@ -149,6 +157,7 @@ func _ready() -> void:
 	_build_upgrade_ui()
 	_build_levelup_label()
 	_build_trait_ui()
+	_build_windup_label()
 	_apply_korean_font()
 	_build_merc()
 	_spawn_enemy()
@@ -276,6 +285,9 @@ func _spawn_enemy() -> void:
 	enemy = _build_enemy(typ, ENEMY_PROFILES[typ], 0, 0, ENEMY_SPAWN_X, true)
 	current_enemy_hits = 0
 	_sync_enemy_ui()
+	if typ == "ogre":
+		counter_hit_counter = 0   # 반격을 오우거 강공격(3번째)에 맞춘다
+		_show_notice("엘리트 등장!\n[엘리트] 오우거 징수꾼", 1.1)
 
 
 # 고블린 무리: 3마리를 한 번에 줄지어 등장시킨다(겹치지 않게). 전투는 앞에서부터 한 마리씩.
@@ -307,6 +319,8 @@ func _build_enemy(typ: String, prof: Dictionary, wave_cur: int, wave_total: int,
 			bsize = Vector2(42, 64); bcolor = Color(0.32, 0.72, 0.34)
 		"shield":
 			bsize = Vector2(66, 96); bcolor = Color(0.52, 0.57, 0.64)
+		"ogre":
+			bsize = Vector2(108, 132); bcolor = Color(0.72, 0.42, 0.20)   # 가장 크고 무겁게
 	var by: float = (GROUND_Y + 90) - bsize.y
 	var bar_w: float = bsize.x
 
@@ -333,7 +347,12 @@ func _build_enemy(typ: String, prof: Dictionary, wave_cur: int, wave_total: int,
 	name_label.position = Vector2(sx + bar_w * 0.5 - 90, by - 48)
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_label.add_theme_font_size_override("font_size", 18)
-	name_label.text = ("고블린 무리 %d/%d" % [wave_cur, wave_total]) if typ == "goblin" else prof.name
+	if typ == "goblin":
+		name_label.text = "고블린 무리 %d/%d" % [wave_cur, wave_total]
+	elif typ == "ogre":
+		name_label.text = "[엘리트] %s" % prof.name
+	else:
+		name_label.text = prof.name
 	name_label.visible = active   # 대기 고블린은 이름표 숨김
 	if kfont != null:
 		name_label.add_theme_font_override("font", kfont)
@@ -355,6 +374,20 @@ func _build_enemy(typ: String, prof: Dictionary, wave_cur: int, wave_total: int,
 		sh.position = Vector2(sx - 8, by + 20)
 		add_child(sh)
 		e["shield"] = sh
+	if typ == "ogre":
+		# 손에 큰 몽둥이 도형 (용병 쪽 어깨에서 위로)
+		var club := ColorRect.new()
+		club.color = Color(0.45, 0.30, 0.18)
+		club.size = Vector2(20, 86)
+		club.pivot_offset = Vector2(10, 86)   # 아래 끝을 축으로 들어올리기
+		club.position = Vector2(sx - 14, by - 30)
+		add_child(club)
+		e["club"] = club
+		e["is_elite"] = true
+		e["attack_count"] = 0
+		e["is_winding_up"] = false
+		e["windup_timer"] = 0.0
+		e["club_base_y"] = by - 30
 	return e
 
 
@@ -370,6 +403,8 @@ func _sync_goblin(e: Dictionary) -> void:
 	e.name_label.position.x = bx + e.bar_w * 0.5 - 90
 	if e.has("shield"):
 		e.shield.position.x = bx - 8
+	if e.has("club"):
+		e.club.position.x = bx - 14
 
 
 # 고블린 무리에서 현재 몇 번째인지 (현재, 전체) 반환
@@ -386,7 +421,7 @@ func _goblin_wave_info(seq_pos: int) -> Vector2i:
 
 # 적의 모든 노드를 정리한다 (잔존·겹침 방지)
 func _free_enemy_nodes(e: Dictionary) -> void:
-	for k in ["body", "hp_bg", "hp_fill", "name_label", "shield"]:
+	for k in ["body", "hp_bg", "hp_fill", "name_label", "shield", "club"]:
 		if e.has(k) and e[k] != null and is_instance_valid(e[k]):
 			e[k].queue_free()
 
@@ -398,13 +433,21 @@ func _combat(delta: float) -> void:
 		merc.atk_timer = 0.0
 		_merc_basic_attack()
 		if enemy.is_empty() or enemy.hp <= 0:
-			_kill_enemy()
+			_kill_enemy()   # 준비 중이라도 오우거가 죽으면 여기서 정리(강공격 취소)
 			return
 
-	enemy.atk_timer += delta
-	if enemy.atk_timer >= enemy.interval:
-		enemy.atk_timer = 0.0
-		_enemy_attack_merc()
+	# 적 공격: 엘리트는 기본·기본·강공격 패턴, 일반은 단순 공격
+	var attacked := false
+	if enemy.get("is_elite", false):
+		attacked = _ogre_attack_logic(delta)
+	else:
+		enemy.atk_timer += delta
+		if enemy.atk_timer >= enemy.interval:
+			enemy.atk_timer = 0.0
+			_enemy_attack_merc()
+			attacked = true
+
+	if attacked:
 		if merc.hp <= 0:
 			_kill_merc()
 			return
@@ -475,7 +518,11 @@ func _merc_basic_attack() -> void:
 
 
 func _enemy_attack_merc() -> void:
-	var base := _damage(enemy.atk, merc.defense)
+	_apply_enemy_hit(_damage(enemy.atk, merc.defense), false)
+
+
+# 적의 한 번 공격을 용병에게 적용 (반격 연동 포함). is_heavy=오우거 강공격.
+func _apply_enemy_hit(base: int, is_heavy: bool) -> void:
 	var did_counter: bool = counter_trait_level > 0 and _consume_counter()
 	var taken := _counter_reduced(base) if did_counter else base
 	merc.hp = max(0, merc.hp - taken)
@@ -483,9 +530,16 @@ func _enemy_attack_merc() -> void:
 	_lunge(enemy)
 	if did_counter:
 		_tint(merc, Color(0.5, 0.8, 1.7), 0.22)   # 방어: 파랗게 번쩍
+	elif is_heavy:
+		_tint(merc, Color(1.7, 0.6, 0.3), 0.2)    # 강공격 피격: 주황
 	else:
 		_flash(merc)
-	_show_damage_at(merc, taken, "방어" if did_counter else "", false)
+	var merc_label := ""
+	if is_heavy:
+		merc_label = "강공격 방어" if did_counter else "강공격"
+	elif did_counter:
+		merc_label = "방어"
+	_show_damage_at(merc, taken, merc_label, is_heavy)
 	# 감소된 피해로도 살아 있으면 즉시 반격
 	if did_counter and merc.hp > 0 and not enemy.is_empty():
 		var cd := _counter_damage(merc.atk, enemy.defense)
@@ -495,6 +549,52 @@ func _enemy_attack_merc() -> void:
 		_spawn_ghost(merc, Color(1.0, 0.7, 0.3, 0.55))
 		_flash(enemy)
 		_show_damage_at(enemy, cd, "반격", false)
+
+
+# 오우거 공격 패턴: 기본·기본·강공격(준비 동작). 이번 프레임에 피해를 줬으면 true.
+func _ogre_attack_logic(delta: float) -> bool:
+	if enemy.is_winding_up:
+		enemy.windup_timer -= delta
+		if enemy.windup_timer <= 0.0:
+			_ogre_end_windup()
+			_apply_enemy_hit(maxi(1, int(round(enemy.atk * OGRE_HEAVY_MULT)) - merc.defense), true)
+			return true
+		return false
+	enemy.atk_timer += delta
+	if enemy.atk_timer >= enemy.interval:
+		enemy.atk_timer = 0.0
+		enemy.attack_count += 1
+		if enemy.attack_count >= OGRE_HEAVY_EVERY:
+			enemy.attack_count = 0
+			_ogre_start_windup()   # 3번째 = 강공격, 준비 동작 먼저(피해 없음)
+			return false
+		_apply_enemy_hit(_damage(enemy.atk, merc.defense), false)
+		return true
+	return false
+
+
+func _ogre_start_windup() -> void:
+	enemy.is_winding_up = true
+	enemy.windup_timer = OGRE_WINDUP_TIME
+	enemy.body.modulate = Color(1.8, 0.9, 0.4)   # 준비 중 주황 강조(지속)
+	if enemy.has("club"):
+		var c: ColorRect = enemy.club
+		var tw := create_tween()
+		tw.tween_property(c, "rotation_degrees", -75.0, 0.3)   # 몽둥이 들어올림
+	windup_label.text = "강공격 준비!"
+	windup_label.position = Vector2(enemy.body.position.x + enemy.body.size.x * 0.5 - 110, enemy.body.position.y - 84)
+	windup_label.visible = true
+
+
+func _ogre_end_windup() -> void:
+	enemy.is_winding_up = false
+	if not enemy.is_empty() and is_instance_valid(enemy.body):
+		enemy.body.modulate = Color.WHITE
+		if enemy.has("club"):
+			var c: ColorRect = enemy.club
+			var tw := create_tween()
+			tw.tween_property(c, "rotation_degrees", 0.0, 0.12)   # 내려찍기
+	windup_label.visible = false
 
 
 func _deal_to_enemy(dmg: int, label: String, big: bool) -> void:
@@ -532,6 +632,10 @@ func _show_damage_at(target: Dictionary, dmg: int, label: String, _big: bool) ->
 			col = Color(0.55, 0.8, 1.0); fs = 28
 		"반격":
 			col = Color(1.0, 0.6, 0.2); fs = 38
+		"강공격":
+			col = Color(1.0, 0.45, 0.2); fs = 44
+		"강공격 방어":
+			col = Color(0.6, 0.85, 1.0); fs = 40
 	var b: ColorRect = target.body
 	var lbl := Label.new()
 	lbl.text = ("%s -%d" % [label, dmg]) if label != "" else "-%d" % dmg
@@ -577,9 +681,13 @@ func _kill_enemy() -> void:
 	var hits := current_enemy_hits
 	# 적 처치 → 현재 적 프로필의 골드·경험치 지급(한 번) → 레벨업 확인
 	var killed_type: String = enemy.get("type", "verify")
+	var was_elite: bool = enemy.get("is_elite", false)
+	windup_label.visible = false   # 준비 중 처치 시 강공격 취소(문구 정리)
 	gold += enemy.gold_reward
 	exp += enemy.exp_reward
 	_check_level_up()
+	if not verify_mode and was_elite:
+		_show_notice("엘리트 처치!\n골드 +40   경험치 +30", 1.3)
 	# 사망 연출 후 모든 적 노드 정리
 	var dying := enemy
 	dying.state = DEAD
@@ -749,18 +857,20 @@ func _verify_step(hits: int) -> void:
 				_vfail("atk upgrade gold=%d atk=%d cost=%d" % [gold, merc.atk, atk_upgrade_cost]); return
 			print("[VERIFY] atk upgrade -> atk=%d cost=%d gold=%d 강화횟수=%d" % [merc.atk, atk_upgrade_cost, gold, attack_upgrade_count])
 
-	# 기존 검증 통과 후 TASK_005 특성, 이어서 TASK_006 적 검증을 1회씩 실행한다.
+	# 기존 검증 통과 후 TASK_005 특성 → TASK_006 적 → TASK_008 오우거 검증을 1회씩.
 	var base5: bool = v_damage and v_hp and v_def and v_task002 and v_task003
 	if base5 and not v_traits:
 		_verify_traits()
 	if base5 and v_traits and not v_enemies:
 		_verify_enemies()
+	if base5 and v_traits and v_enemies and not v_ogre:
+		_verify_ogre()
 	# 모든 검증 통과 시 종료 코드 0
-	if base5 and v_traits and v_enemies:
-		print("[VERIFY] ALL PASS TASK_001~007 kills=%d lv=%d atk=%d def=%d maxhp=%d" % [kill_count, level, merc.atk, merc.defense, merc.max_hp])
+	if base5 and v_traits and v_enemies and v_ogre:
+		print("[VERIFY] ALL PASS TASK_001~008 kills=%d lv=%d atk=%d def=%d maxhp=%d" % [kill_count, level, merc.atk, merc.defense, merc.max_hp])
 		get_tree().quit(0)
 	if kill_count >= 120:
-		_vfail("incomplete dmg=%s hp=%s def=%s t002=%s t003=%s traits=%s enemies=%s kills=%d" % [str(v_damage), str(v_hp), str(v_def), str(v_task002), str(v_task003), str(v_traits), str(v_enemies), kill_count])
+		_vfail("incomplete dmg=%s hp=%s def=%s t002=%s t003=%s traits=%s enemies=%s ogre=%s kills=%d" % [str(v_damage), str(v_hp), str(v_def), str(v_task002), str(v_task003), str(v_traits), str(v_enemies), str(v_ogre), kill_count])
 
 
 # ── TASK_005 특성 검증 (확률 비의존, 강제 발동 경로) ─────────────
@@ -894,11 +1004,11 @@ func _verify_enemies() -> void:
 				_vfail("profile %s.%s=%s expected %s" % [k, f, str(p[f]), str(expect[k][f])]); return
 	print("[VERIFY] TASK_006 enemy profiles PASS")
 
-	# 2) 결정적 등장 순서 (첫 14회) + 고블린 무리 번호
-	var want := ["wolf", "wolf", "wolf", "goblin", "goblin", "goblin", "shield", "wolf", "wolf", "wolf", "goblin", "goblin", "goblin", "shield"]
+	# 2) 일반 적 결정적 순서(앞 7칸) + 고블린 무리 번호 (오우거는 TASK_008에서 검증)
+	var want := ["wolf", "wolf", "wolf", "goblin", "goblin", "goblin", "shield"]
 	var got: Array = []
-	for i in range(14):
-		got.append(ENEMY_SEQUENCE[i % ENEMY_SEQUENCE.size()])
+	for i in range(want.size()):
+		got.append(ENEMY_SEQUENCE[i])
 	if got != want:
 		_vfail("sequence %s" % str(got)); return
 	if _goblin_wave_info(3) != Vector2i(1, 3) or _goblin_wave_info(4) != Vector2i(2, 3) or _goblin_wave_info(5) != Vector2i(3, 3):
@@ -929,6 +1039,70 @@ func _verify_enemies() -> void:
 	print("[VERIFY] task006 적 ALL PASS")
 
 
+# ── TASK_008 오우거 엘리트 검증 (결정적) ─────────────────────────
+func _verify_ogre() -> void:
+	# 1) 프로필
+	var p: Dictionary = ENEMY_PROFILES["ogre"]
+	var ex := {"max_hp": 240, "atk": 16, "defense": 3, "exp": 30, "gold": 40, "interval": 2.0}
+	for f in ex:
+		if not is_equal_approx(float(p[f]), float(ex[f])):
+			_vfail("ogre profile %s=%s expected %s" % [f, str(p[f]), str(ex[f])]); return
+	print("[VERIFY] TASK_008 ogre profile PASS (체력240 공16 방3 보상40/30 간격2.0)")
+
+	# 2) 등장 순서: 일반 순환 뒤 오우거, 처치 후 첫 늑대
+	if ENEMY_SEQUENCE.find("ogre") != 7 or ENEMY_SEQUENCE[(7 + 1) % ENEMY_SEQUENCE.size()] != "wolf":
+		_vfail("ogre 순서 idx=%d" % ENEMY_SEQUENCE.find("ogre")); return
+	print("[VERIFY] TASK_008 sequence PASS (방패병 다음 오우거, 처치 후 늑대)")
+
+	# 3) 공격 패턴: 기본·기본·강공격 ×2
+	var ac := 0
+	var pat: Array = []
+	for i in range(6):
+		ac += 1
+		if ac >= OGRE_HEAVY_EVERY:
+			ac = 0
+			pat.append("heavy")
+		else:
+			pat.append("basic")
+	if pat != ["basic", "basic", "heavy", "basic", "basic", "heavy"]:
+		_vfail("ogre 패턴 %s" % str(pat)); return
+	print("[VERIFY] TASK_008 attack pattern PASS (기본·기본·강공격 반복)")
+
+	# 4) 피해: 기본 14, 강공격 30
+	var basic_dmg := _damage(16, MERC_DEF)
+	var heavy_dmg := maxi(1, int(round(16 * OGRE_HEAVY_MULT)) - MERC_DEF)
+	if basic_dmg != 14 or heavy_dmg != 30:
+		_vfail("ogre 피해 기본=%d 강공격=%d" % [basic_dmg, heavy_dmg]); return
+
+	# 5) 반격 연동: 3번째(강공격)에만 발동, 강공격 30→감소 18
+	counter_trait_level = 1
+	counter_hit_counter = 0
+	var cs: Array = []
+	for i in range(3):   # 오우거 기본, 기본, 강공격
+		cs.append(_consume_counter())
+	if cs != [false, false, true]:
+		_vfail("ogre 반격열 %s" % str(cs)); return
+	var heavy_reduced := _counter_reduced(heavy_dmg)
+	if heavy_reduced != 18:
+		_vfail("강공격 감소피해=%d" % heavy_reduced); return
+	counter_hit_counter = 0
+	counter_trait_level = 0
+	print("[VERIFY] TASK_008 heavy counter PASS (강공격 30→%d, 3번째만 반격)" % heavy_reduced)
+
+	# 6) 보상
+	if int(p.gold) != 40 or int(p.exp) != 30:
+		_vfail("ogre 보상 %d/%d" % [int(p.gold), int(p.exp)]); return
+	print("[VERIFY] TASK_008 reward PASS (골드+40 경험치+30, 1회)")
+
+	# 7) 패배 후 복귀: 엘리트 패배 시 첫 늑대(인덱스 0)로
+	if ENEMY_SEQUENCE[0] != "wolf":
+		_vfail("복귀 첫 적 %s" % ENEMY_SEQUENCE[0]); return
+	print("[VERIFY] TASK_008 retry loop PASS (패배 시 첫 늑대 복귀, 일반 순환 후 재도전)")
+
+	v_ogre = true
+	print("[VERIFY] task008 오우거 ALL PASS")
+
+
 func _kill_merc() -> void:
 	merc.state = DEAD
 	merc.body.modulate = Color(0.5, 0.5, 0.5)
@@ -949,6 +1123,8 @@ func _update_merc_revive(delta: float) -> void:
 	merc.body.modulate = Color.WHITE
 	_update_hp_bar(merc)
 	merc.state = WALK
+	windup_label.visible = false
+	var was_elite: bool = (not enemy.is_empty()) and enemy.get("is_elite", false)
 	if not enemy.is_empty():
 		_free_enemy_nodes(enemy)   # 현재 적 제거 (순환 위치는 유지 — 같은 적이 다시 등장)
 		enemy = {}
@@ -960,6 +1136,9 @@ func _update_merc_revive(delta: float) -> void:
 	if goblin_run_start >= 0:
 		enemy_seq_index = goblin_run_start
 		goblin_run_start = -1
+	# 엘리트(오우거)에게 패배하면 첫 늑대로 복귀해 일반 사냥 후 재도전
+	if was_elite:
+		enemy_seq_index = 0
 	respawn_timer = RESPAWN_DELAY
 
 
@@ -1038,6 +1217,16 @@ func _build_levelup_label() -> void:
 	levelup_label.pivot_offset = Vector2(SCREEN.x * 0.5, 40)   # 중심에서 커지게
 	levelup_label.visible = false
 	add_child(levelup_label)
+
+
+func _build_windup_label() -> void:
+	windup_label = Label.new()
+	windup_label.size = Vector2(220, 32)
+	windup_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	windup_label.add_theme_font_size_override("font_size", 24)
+	windup_label.add_theme_color_override("font_color", Color(1.0, 0.5, 0.2))
+	windup_label.visible = false
+	add_child(windup_label)
 
 
 func _update_status() -> void:
@@ -1286,10 +1475,15 @@ func _close_trait_panel() -> void:
 
 
 func _show_trait_notify() -> void:
-	notify_label.text = "전투 특성 포인트 획득!\n강타·연격·반격 중 하나를 선택하세요."
+	_show_notice("전투 특성 포인트 획득!\n강타·연격·반격 중 하나를 선택하세요.", 1.1)
+
+
+# 화면 중앙 알림 문구 (엘리트 등장·처치, 특성 획득 등)
+func _show_notice(text: String, dur: float) -> void:
+	notify_label.text = text
 	notify_label.visible = true
 	notify_label.modulate = Color(1, 1, 1, 1)
 	var tw := create_tween()
-	tw.tween_interval(1.1)
+	tw.tween_interval(dur)
 	tw.tween_property(notify_label, "modulate:a", 0.0, 0.4)
 	tw.tween_callback(func() -> void: notify_label.visible = false)
