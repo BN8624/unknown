@@ -4,10 +4,12 @@ extends Node2D
 # ── 밸런스 수치 (조정은 모두 여기서) ──────────────────────────────
 const MERC_MAX_HP := 100
 const MERC_ATK := 10
+const MERC_DEF := 2             # 용병 시작 방어력
 const MERC_INTERVAL := 1.0      # 용병 공격 간격(초)
 
 const ENEMY_MAX_HP := 30
-const ENEMY_ATK := 4
+const ENEMY_ATK := 6            # 방어력 2 도입 상쇄: 6-2=4로 기존 실제 피해 유지
+const ENEMY_DEF := 0            # 일반 적 방어력
 const ENEMY_INTERVAL := 1.5     # 적 공격 간격(초)
 
 const ENEMY_APPROACH_SPEED := 130.0   # 적 접근 속도(px/s)
@@ -27,6 +29,14 @@ const EXP_PER_KILL := 5
 const START_LEVEL := 1
 const LEVEL_ATK_GAIN := 1            # 레벨업 1회당 공격력 증가
 const LEVEL_HP_GAIN := 5             # 레벨업 1회당 최대 체력 증가
+
+# ── 성장: 체력·방어력 강화 (TASK_004) ────────────────────────────
+const HP_UPGRADE_AMOUNT := 20
+const HP_UPGRADE_BASE_COST := 20
+const HP_COST_MULTIPLIER := 1.4
+const DEF_UPGRADE_AMOUNT := 1
+const DEF_UPGRADE_BASE_COST := 25
+const DEF_COST_MULTIPLIER := 1.4
 
 # ── 화면/배치 기준 ────────────────────────────────────────────────
 const SCREEN := Vector2(540, 960)
@@ -53,10 +63,16 @@ var status_label: Label
 # 성장 상태
 var gold := 0
 var atk_upgrade_cost := ATK_UPGRADE_BASE_COST
-var upgrade_button: Button
+var hp_upgrade_cost := HP_UPGRADE_BASE_COST
+var def_upgrade_cost := DEF_UPGRADE_BASE_COST
+var atk_button: Button
+var hp_button: Button
+var def_button: Button
 var current_enemy_hits := 0   # 현재 적에게 용병이 가한 타격 수
 var first_hits := 0           # 검증용: 첫 적 처치에 든 타격 수
-var attack_upgrade_count := 0 # 골드 강화 횟수 (레벨업 공격력과 구분)
+var attack_upgrade_count := 0 # 공격력 강화 횟수 (레벨업 공격력과 구분)
+var hp_upgrade_count := 0     # 체력 강화 횟수
+var def_upgrade_count := 0    # 방어력 강화 횟수
 
 # 레벨/경험치 상태
 var level := START_LEVEL
@@ -68,6 +84,10 @@ var levelup_label: Label
 # 검증 단계 통과 플래그
 var v_task002 := false
 var v_task003 := false
+var v_damage := false
+var v_hp := false
+var v_def := false
+var v_phase := 0   # 검증 강화 순서: 0=체력, 1=방어력, 2=공격력
 
 
 func _ready() -> void:
@@ -175,7 +195,7 @@ func _build_merc() -> void:
 	merc = {
 		"body": body, "hp_bg": hp_bg, "hp_fill": hp_fill,
 		"max_hp": MERC_MAX_HP, "hp": MERC_MAX_HP,
-		"atk": MERC_ATK, "interval": MERC_INTERVAL, "atk_timer": 0.0,
+		"atk": MERC_ATK, "defense": MERC_DEF, "interval": MERC_INTERVAL, "atk_timer": 0.0,
 		"state": WALK, "base_x": MERC_X,
 	}
 
@@ -203,7 +223,7 @@ func _spawn_enemy() -> void:
 	enemy = {
 		"body": body, "hp_bg": hp_bg, "hp_fill": hp_fill,
 		"max_hp": ENEMY_MAX_HP, "hp": ENEMY_MAX_HP,
-		"atk": ENEMY_ATK, "interval": ENEMY_INTERVAL, "atk_timer": 0.0,
+		"atk": ENEMY_ATK, "defense": ENEMY_DEF, "interval": ENEMY_INTERVAL, "atk_timer": 0.0,
 		"state": WALK,
 	}
 	current_enemy_hits = 0
@@ -234,14 +254,35 @@ func _combat(delta: float) -> void:
 			_kill_merc()
 
 
+func _damage(atk: int, target_def: int) -> int:
+	# 최종 피해 = 공격력 - 대상 방어력, 최소 1
+	return maxi(1, atk - target_def)
+
+
 func _attack(attacker: Dictionary, target: Dictionary) -> void:
-	# 피해량 = 공격력 (이번 작업은 단순 계산, 무작위 없음)
-	target.hp = max(0, target.hp - attacker.atk)
+	var dmg := _damage(attacker.atk, target.defense)
+	target.hp = max(0, target.hp - dmg)
 	if attacker == merc:
 		current_enemy_hits += 1
 	_update_hp_bar(target)
 	_lunge(attacker)
 	_flash(target)
+	_show_damage(target, dmg)
+
+
+func _show_damage(target: Dictionary, dmg: int) -> void:
+	# 실제 피해 숫자를 대상 근처에 잠깐 띄운다 (공격마다 한 번)
+	var b: ColorRect = target.body
+	var lbl := Label.new()
+	lbl.text = "-%d" % dmg
+	lbl.add_theme_font_size_override("font_size", 30)
+	lbl.add_theme_color_override("font_color", Color(1, 1, 1))
+	lbl.position = Vector2(b.position.x + 14, b.position.y - 26)
+	add_child(lbl)
+	var tw := create_tween()
+	tw.tween_property(lbl, "position:y", lbl.position.y - 34, 0.5)
+	tw.parallel().tween_property(lbl, "modulate:a", 0.0, 0.5)
+	tw.tween_callback(lbl.queue_free)
 
 
 func _kill_enemy() -> void:
@@ -315,57 +356,90 @@ func _show_level_up_effect() -> void:
 		t2.tween_property(b, "scale", Vector2.ONE, 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
 
 
-# ── 검증: TASK_002(골드 강화)와 TASK_003(경험치·레벨업)을 모두 확인 ──
+# ── 검증: TASK_002·003·004 를 모두 확인 ──────────────────────────
+func _vfail(msg: String) -> void:
+	print("[VERIFY] FAIL ", msg)
+	get_tree().quit(1)
+
+
 func _verify_step(hits: int) -> void:
 	if first_hits == 0:
 		first_hits = hits
-	# 불변식: 공격력·최대 체력이 강화/레벨 누적과 정확히 일치하는가
+	# 불변식: 공격력·최대 체력·방어력이 누적 공식과 정확히 일치하는가
 	var levelups := level - START_LEVEL
 	var expect_atk := MERC_ATK + attack_upgrade_count * ATK_UPGRADE_AMOUNT + levelups * LEVEL_ATK_GAIN
-	var expect_maxhp := MERC_MAX_HP + levelups * LEVEL_HP_GAIN
+	var expect_maxhp := MERC_MAX_HP + hp_upgrade_count * HP_UPGRADE_AMOUNT + levelups * LEVEL_HP_GAIN
+	var expect_def := MERC_DEF + def_upgrade_count * DEF_UPGRADE_AMOUNT
 	if merc.atk != expect_atk:
-		print("[VERIFY] FAIL atk=%d expected=%d (강화=%d 레벨업=%d)" % [merc.atk, expect_atk, attack_upgrade_count, levelups])
-		get_tree().quit(1)
-		return
+		_vfail("atk=%d expected=%d (강화=%d 레벨업=%d)" % [merc.atk, expect_atk, attack_upgrade_count, levelups]); return
 	if merc.max_hp != expect_maxhp:
-		print("[VERIFY] FAIL maxhp=%d expected=%d (레벨업=%d)" % [merc.max_hp, expect_maxhp, levelups])
-		get_tree().quit(1)
-		return
-	print("[VERIFY] xp kill=%d level=%d exp=%d/%d atk=%d gold=%d" % [kill_count, level, exp, _exp_to_next(level), merc.atk, gold])
+		_vfail("maxhp=%d expected=%d (체력강화=%d 레벨업=%d)" % [merc.max_hp, expect_maxhp, hp_upgrade_count, levelups]); return
+	if merc.defense != expect_def:
+		_vfail("def=%d expected=%d (방어강화=%d)" % [merc.defense, expect_def, def_upgrade_count]); return
+
+	# 피해 계산 함수 검증 (한 번)
+	if not v_damage:
+		if _damage(ENEMY_ATK, MERC_DEF) == 4 and _damage(ENEMY_ATK, MERC_DEF + 1) == 3 and _damage(4, 10) == 1:
+			v_damage = true
+			print("[VERIFY] damage PASS 6-2=4, 6-3=3, min=1")
+		else:
+			_vfail("damage calc 6-2=%d 6-3=%d 4-10=%d" % [_damage(ENEMY_ATK, MERC_DEF), _damage(ENEMY_ATK, MERC_DEF + 1), _damage(4, 10)]); return
+
+	print("[VERIFY] kill=%d lv=%d exp=%d/%d atk=%d def=%d maxhp=%d hp=%d gold=%d" % [kill_count, level, exp, _exp_to_next(level), merc.atk, merc.defense, merc.max_hp, merc.hp, gold])
 
 	# TASK_003: 첫 레벨업 상태 확인
 	if not v_task003 and level >= START_LEVEL + 1:
-		var ok: bool = level == 2 and exp == 0 and _exp_to_next(level) == 30 \
-			and merc.max_hp == MERC_MAX_HP + LEVEL_HP_GAIN and merc.hp == merc.max_hp
+		var ok: bool = level == 2 and exp == 0 and _exp_to_next(level) == 30 and merc.hp == merc.max_hp
 		if not ok:
-			print("[VERIFY] FAIL levelup level=%d exp=%d next=%d maxhp=%d hp=%d" % [level, exp, _exp_to_next(level), merc.max_hp, merc.hp])
-			get_tree().quit(1)
-			return
+			_vfail("levelup level=%d exp=%d next=%d hp=%d/%d" % [level, exp, _exp_to_next(level), merc.hp, merc.max_hp]); return
 		v_task003 = true
-		print("[VERIFY] task003 PASS level=2 exp=0/30 maxhp=%d hp=%d atk=%d(직전+1)" % [merc.max_hp, merc.hp, merc.atk])
+		print("[VERIFY] task003 PASS level=2 exp=0/30 완전회복 hp=%d" % merc.hp)
 
-	# TASK_002: 골드 강화 (수식 검증) → 더 적은 타격으로 처치
-	while gold >= atk_upgrade_cost:
-		var g0 := gold
-		var a0: int = merc.atk
-		var c0 := atk_upgrade_cost
-		_do_upgrade()
-		if gold != g0 - c0 or merc.atk != a0 + ATK_UPGRADE_AMOUNT or atk_upgrade_cost != int(round(c0 * ATK_COST_MULTIPLIER)):
-			print("[VERIFY] FAIL upgrade math gold=%d atk=%d cost=%d" % [gold, merc.atk, atk_upgrade_cost])
-			get_tree().quit(1)
-			return
-		print("[VERIFY] upgrade -> atk=%d cost=%d gold=%d 강화횟수=%d" % [merc.atk, atk_upgrade_cost, gold, attack_upgrade_count])
-	if not v_task002 and attack_upgrade_count >= 1 and hits < first_hits:
+	# TASK_002: 공격력 강화 2회 이상 한 상태에서 더 적은 타격으로 처치
+	if not v_task002 and attack_upgrade_count >= 2 and hits < first_hits:
 		v_task002 = true
-		print("[VERIFY] task002 PASS 강화=%d hits=%d(<%d) atk=%d" % [attack_upgrade_count, hits, first_hits, merc.atk])
+		print("[VERIFY] task002 PASS 공격강화=%d hits=%d(<%d) atk=%d" % [attack_upgrade_count, hits, first_hits, merc.atk])
 
-	# 두 검증 모두 통과해야 종료 코드 0
-	if v_task002 and v_task003:
-		print("[VERIFY] ALL PASS kills=%d level=%d atk=%d maxhp=%d" % [kill_count, level, merc.atk, merc.max_hp])
+	# 강화 순서: 0=체력 1회 → 1=방어력 1회 → 2=공격력 여러 번
+	if v_phase == 0:
+		if gold >= hp_upgrade_cost:
+			var g0 := gold
+			var mh0: int = merc.max_hp
+			var hp0: int = merc.hp
+			var c0 := hp_upgrade_cost
+			_do_hp_upgrade()
+			if gold != g0 - c0 or merc.max_hp != mh0 + HP_UPGRADE_AMOUNT or merc.hp != mini(hp0 + HP_UPGRADE_AMOUNT, merc.max_hp) or hp_upgrade_cost != int(round(c0 * HP_COST_MULTIPLIER)) or hp_upgrade_count != 1:
+				_vfail("hp upgrade gold=%d maxhp=%d hp=%d(was %d/%d) cost=%d" % [gold, merc.max_hp, merc.hp, hp0, mh0, hp_upgrade_cost]); return
+			v_hp = true
+			v_phase = 1
+			print("[VERIFY] task004 hp PASS maxhp %d→%d hp %d→%d cost→%d" % [mh0, merc.max_hp, hp0, merc.hp, hp_upgrade_cost])
+	elif v_phase == 1:
+		if gold >= def_upgrade_cost:
+			var g0 := gold
+			var d0: int = merc.defense
+			var c0 := def_upgrade_cost
+			_do_def_upgrade()
+			if gold != g0 - c0 or merc.defense != d0 + DEF_UPGRADE_AMOUNT or def_upgrade_cost != int(round(c0 * DEF_COST_MULTIPLIER)) or def_upgrade_count != 1 or _damage(ENEMY_ATK, merc.defense) != 3:
+				_vfail("def upgrade def=%d 적피해=%d cost=%d" % [merc.defense, _damage(ENEMY_ATK, merc.defense), def_upgrade_cost]); return
+			v_def = true
+			v_phase = 2
+			print("[VERIFY] task004 def PASS def %d→%d 적피해 4→%d cost→%d" % [d0, merc.defense, _damage(ENEMY_ATK, merc.defense), def_upgrade_cost])
+	else:
+		while gold >= atk_upgrade_cost:
+			var g0 := gold
+			var a0: int = merc.atk
+			var c0 := atk_upgrade_cost
+			_do_atk_upgrade()
+			if gold != g0 - c0 or merc.atk != a0 + ATK_UPGRADE_AMOUNT or atk_upgrade_cost != int(round(c0 * ATK_COST_MULTIPLIER)):
+				_vfail("atk upgrade gold=%d atk=%d cost=%d" % [gold, merc.atk, atk_upgrade_cost]); return
+			print("[VERIFY] atk upgrade -> atk=%d cost=%d gold=%d 강화횟수=%d" % [merc.atk, atk_upgrade_cost, gold, attack_upgrade_count])
+
+	# 모든 검증 통과 시 종료 코드 0
+	if v_damage and v_hp and v_def and v_task002 and v_task003:
+		print("[VERIFY] ALL PASS kills=%d lv=%d atk=%d def=%d maxhp=%d" % [kill_count, level, merc.atk, merc.defense, merc.max_hp])
 		get_tree().quit(0)
-	if kill_count >= 80:
-		print("[VERIFY] FAIL incomplete task002=%s task003=%s kills=%d" % [str(v_task002), str(v_task003), kill_count])
-		get_tree().quit(1)
+	if kill_count >= 120:
+		_vfail("incomplete dmg=%s hp=%s def=%s t002=%s t003=%s kills=%d" % [str(v_damage), str(v_hp), str(v_def), str(v_task002), str(v_task003), kill_count])
 
 
 func _kill_merc() -> void:
@@ -429,7 +503,9 @@ func _apply_korean_font() -> void:
 		return
 	var f: Font = load(path)
 	status_label.add_theme_font_override("font", f)
-	upgrade_button.add_theme_font_override("font", f)
+	atk_button.add_theme_font_override("font", f)
+	hp_button.add_theme_font_override("font", f)
+	def_button.add_theme_font_override("font", f)
 	levelup_label.add_theme_font_override("font", f)
 
 
@@ -473,39 +549,79 @@ func _update_status() -> void:
 	if not enemy.is_empty():
 		enemy_hp = enemy.hp
 	var need := _exp_to_next(level)
-	status_label.text = "레벨 %d   EXP %d/%d   골드 %d   처치 %d\n용병 HP %d/%d   적 HP %d" % [level, exp, need, gold, kill_count, merc.hp, merc.max_hp, enemy_hp]
+	status_label.text = "레벨 %d   EXP %d/%d   골드 %d   처치 %d\n용병 HP %d/%d   공격 %d   방어 %d   적 HP %d" % [level, exp, need, gold, kill_count, merc.hp, merc.max_hp, merc.atk, merc.defense, enemy_hp]
 	if exp_fill != null:
 		exp_fill.size.x = 504.0 * clampf(float(exp) / float(need), 0.0, 1.0)
 
 
-# ── 골드 강화 (TASK_002) ─────────────────────────────────────────
+# ── 골드 강화: 공격력·체력·방어력 (TASK_002·004) ─────────────────
 func _build_upgrade_ui() -> void:
-	upgrade_button = Button.new()
-	upgrade_button.position = Vector2(20, 812)
-	upgrade_button.size = Vector2(500, 116)
-	upgrade_button.add_theme_font_size_override("font_size", 26)
-	upgrade_button.pressed.connect(_on_upgrade_pressed)
-	add_child(upgrade_button)
+	atk_button = _make_upgrade_button(700.0, _on_atk_pressed)
+	hp_button = _make_upgrade_button(786.0, _on_hp_pressed)
+	def_button = _make_upgrade_button(872.0, _on_def_pressed)
 	_update_upgrade_ui()
 
 
+func _make_upgrade_button(y: float, cb: Callable) -> Button:
+	var b := Button.new()
+	b.position = Vector2(20, y)
+	b.size = Vector2(500, 78)
+	b.add_theme_font_size_override("font_size", 22)
+	b.pressed.connect(cb)
+	add_child(b)
+	return b
+
+
 func _update_upgrade_ui() -> void:
-	if upgrade_button == null:
+	if atk_button == null:
 		return
-	var cur_atk: int = merc.atk if not merc.is_empty() else MERC_ATK
-	upgrade_button.text = "공격력 강화   %d → %d\n비용 %d골드   (보유 %d)" % [cur_atk, cur_atk + ATK_UPGRADE_AMOUNT, atk_upgrade_cost, gold]
-	upgrade_button.disabled = gold < atk_upgrade_cost
+	var atk: int = merc.atk if not merc.is_empty() else MERC_ATK
+	var mhp: int = merc.max_hp if not merc.is_empty() else MERC_MAX_HP
+	var df: int = merc.defense if not merc.is_empty() else MERC_DEF
+	atk_button.text = "공격력 강화   %d → %d\n비용 %d골드" % [atk, atk + ATK_UPGRADE_AMOUNT, atk_upgrade_cost]
+	atk_button.disabled = gold < atk_upgrade_cost
+	hp_button.text = "체력 강화   %d → %d\n비용 %d골드" % [mhp, mhp + HP_UPGRADE_AMOUNT, hp_upgrade_cost]
+	hp_button.disabled = gold < hp_upgrade_cost
+	def_button.text = "방어력 강화   %d → %d\n비용 %d골드" % [df, df + DEF_UPGRADE_AMOUNT, def_upgrade_cost]
+	def_button.disabled = gold < def_upgrade_cost
 
 
-func _on_upgrade_pressed() -> void:
-	if gold < atk_upgrade_cost:
-		return
-	_do_upgrade()
+func _on_atk_pressed() -> void:
+	if gold >= atk_upgrade_cost:
+		_do_atk_upgrade()
 
 
-func _do_upgrade() -> void:
+func _on_hp_pressed() -> void:
+	if gold >= hp_upgrade_cost:
+		_do_hp_upgrade()
+
+
+func _on_def_pressed() -> void:
+	if gold >= def_upgrade_cost:
+		_do_def_upgrade()
+
+
+func _do_atk_upgrade() -> void:
 	gold -= atk_upgrade_cost
 	merc.atk += ATK_UPGRADE_AMOUNT
 	atk_upgrade_cost = int(round(atk_upgrade_cost * ATK_COST_MULTIPLIER))
 	attack_upgrade_count += 1
+	_update_upgrade_ui()
+
+
+func _do_hp_upgrade() -> void:
+	gold -= hp_upgrade_cost
+	merc.max_hp += HP_UPGRADE_AMOUNT
+	merc.hp = mini(merc.hp + HP_UPGRADE_AMOUNT, merc.max_hp)  # 잃은 체력 유지, 완전 회복 아님
+	hp_upgrade_cost = int(round(hp_upgrade_cost * HP_COST_MULTIPLIER))
+	hp_upgrade_count += 1
+	_update_hp_bar(merc)
+	_update_upgrade_ui()
+
+
+func _do_def_upgrade() -> void:
+	gold -= def_upgrade_cost
+	merc.defense += DEF_UPGRADE_AMOUNT
+	def_upgrade_cost = int(round(def_upgrade_cost * DEF_COST_MULTIPLIER))
+	def_upgrade_count += 1
 	_update_upgrade_ui()
