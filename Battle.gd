@@ -22,6 +22,12 @@ const ATK_UPGRADE_AMOUNT := 2        # 강화 1회당 공격력 증가
 const ATK_UPGRADE_BASE_COST := 20    # 첫 강화 비용
 const ATK_COST_MULTIPLIER := 1.4     # 다음 비용 = 직전 비용 × 1.4
 
+# ── 성장: 경험치와 레벨업 (TASK_003) ─────────────────────────────
+const EXP_PER_KILL := 5
+const START_LEVEL := 1
+const LEVEL_ATK_GAIN := 1            # 레벨업 1회당 공격력 증가
+const LEVEL_HP_GAIN := 5             # 레벨업 1회당 최대 체력 증가
+
 # ── 화면/배치 기준 ────────────────────────────────────────────────
 const SCREEN := Vector2(540, 960)
 const MERC_X := 162.0            # 화면 왼쪽 약 30% 지점
@@ -50,13 +56,27 @@ var atk_upgrade_cost := ATK_UPGRADE_BASE_COST
 var upgrade_button: Button
 var current_enemy_hits := 0   # 현재 적에게 용병이 가한 타격 수
 var first_hits := 0           # 검증용: 첫 적 처치에 든 타격 수
+var attack_upgrade_count := 0 # 골드 강화 횟수 (레벨업 공격력과 구분)
+
+# 레벨/경험치 상태
+var level := START_LEVEL
+var exp := 0
+var exp_bg: ColorRect
+var exp_fill: ColorRect
+var levelup_label: Label
+
+# 검증 단계 통과 플래그
+var v_task002 := false
+var v_task003 := false
 
 
 func _ready() -> void:
 	verify_mode = "--verify" in OS.get_cmdline_user_args()
 	_build_background()
 	_build_status_label()
+	_build_exp_bar()
 	_build_upgrade_ui()
+	_build_levelup_label()
 	_apply_korean_font()
 	_build_merc()
 	_spawn_enemy()
@@ -225,8 +245,11 @@ func _attack(attacker: Dictionary, target: Dictionary) -> void:
 
 func _kill_enemy() -> void:
 	kill_count += 1
-	gold += GOLD_PER_KILL
 	var hits := current_enemy_hits
+	# 적 처치 → 골드 +5 → 경험치 +5 → 레벨업 확인
+	gold += GOLD_PER_KILL
+	exp += EXP_PER_KILL
+	_check_level_up()
 	# 사망 연출 후 제거
 	var dying := enemy
 	dying.state = DEAD
@@ -243,20 +266,99 @@ func _kill_enemy() -> void:
 	merc.atk_timer = 0.0
 	_update_upgrade_ui()
 
-	if not verify_mode:
-		return
-	# ── 검증: 골드를 모아 강화하면 처치 타격 수가 줄어드는지 확인 ──
+	if verify_mode:
+		_verify_step(hits)
+
+
+# 현재 레벨에서 다음 레벨까지 필요한 경험치
+func _exp_to_next(lv: int) -> int:
+	return 20 + lv * 5
+
+
+func _check_level_up() -> void:
+	# 초과 경험치를 버리지 않고 가능한 만큼 레벨업한다.
+	while exp >= _exp_to_next(level):
+		exp -= _exp_to_next(level)
+		_level_up()
+
+
+func _level_up() -> void:
+	level += 1
+	merc.atk += LEVEL_ATK_GAIN
+	merc.max_hp += LEVEL_HP_GAIN
+	merc.hp = merc.max_hp            # 새 최대 체력까지 완전 회복
+	_update_hp_bar(merc)
+	_update_upgrade_ui()            # 강화 버튼에 현재 공격력 즉시 반영
+	_show_level_up_effect()
+
+
+func _show_level_up_effect() -> void:
+	# 레벨업 문구 (전투/입력은 막지 않음)
+	levelup_label.text = "레벨 업! %d" % level
+	levelup_label.visible = true
+	levelup_label.modulate.a = 1.0
+	var tw := create_tween()
+	tw.tween_interval(0.65)
+	tw.tween_property(levelup_label, "modulate:a", 0.0, 0.3)
+	tw.tween_callback(func() -> void: levelup_label.visible = false)
+	# 용병 강조: 짧게 커졌다 복귀
+	if not merc.is_empty():
+		var b: ColorRect = merc.body
+		var t2 := create_tween()
+		t2.tween_property(b, "scale", Vector2(1.25, 1.25), 0.12)
+		t2.tween_property(b, "scale", Vector2.ONE, 0.15)
+
+
+# ── 검증: TASK_002(골드 강화)와 TASK_003(경험치·레벨업)을 모두 확인 ──
+func _verify_step(hits: int) -> void:
 	if first_hits == 0:
 		first_hits = hits
-	print("[VERIFY] kill=%d hits=%d atk=%d gold=%d" % [kill_count, hits, merc.atk, gold])
+	# 불변식: 공격력·최대 체력이 강화/레벨 누적과 정확히 일치하는가
+	var levelups := level - START_LEVEL
+	var expect_atk := MERC_ATK + attack_upgrade_count * ATK_UPGRADE_AMOUNT + levelups * LEVEL_ATK_GAIN
+	var expect_maxhp := MERC_MAX_HP + levelups * LEVEL_HP_GAIN
+	if merc.atk != expect_atk:
+		print("[VERIFY] FAIL atk=%d expected=%d (강화=%d 레벨업=%d)" % [merc.atk, expect_atk, attack_upgrade_count, levelups])
+		get_tree().quit(1)
+		return
+	if merc.max_hp != expect_maxhp:
+		print("[VERIFY] FAIL maxhp=%d expected=%d (레벨업=%d)" % [merc.max_hp, expect_maxhp, levelups])
+		get_tree().quit(1)
+		return
+	print("[VERIFY] xp kill=%d level=%d exp=%d/%d atk=%d gold=%d" % [kill_count, level, exp, _exp_to_next(level), merc.atk, gold])
+
+	# TASK_003: 첫 레벨업 상태 확인
+	if not v_task003 and level >= START_LEVEL + 1:
+		var ok: bool = level == 2 and exp == 0 and _exp_to_next(level) == 30 \
+			and merc.max_hp == MERC_MAX_HP + LEVEL_HP_GAIN and merc.hp == merc.max_hp
+		if not ok:
+			print("[VERIFY] FAIL levelup level=%d exp=%d next=%d maxhp=%d hp=%d" % [level, exp, _exp_to_next(level), merc.max_hp, merc.hp])
+			get_tree().quit(1)
+			return
+		v_task003 = true
+		print("[VERIFY] task003 PASS level=2 exp=0/30 maxhp=%d hp=%d atk=%d(직전+1)" % [merc.max_hp, merc.hp, merc.atk])
+
+	# TASK_002: 골드 강화 (수식 검증) → 더 적은 타격으로 처치
 	while gold >= atk_upgrade_cost:
+		var g0 := gold
+		var a0: int = merc.atk
+		var c0 := atk_upgrade_cost
 		_do_upgrade()
-		print("[VERIFY] upgrade -> atk=%d cost=%d gold=%d" % [merc.atk, atk_upgrade_cost, gold])
-	if merc.atk > MERC_ATK and hits < first_hits:
-		print("[VERIFY] PASS kills=%d atk=%d hits=%d(<%d)" % [kill_count, merc.atk, hits, first_hits])
+		if gold != g0 - c0 or merc.atk != a0 + ATK_UPGRADE_AMOUNT or atk_upgrade_cost != int(round(c0 * ATK_COST_MULTIPLIER)):
+			print("[VERIFY] FAIL upgrade math gold=%d atk=%d cost=%d" % [gold, merc.atk, atk_upgrade_cost])
+			get_tree().quit(1)
+			return
+		print("[VERIFY] upgrade -> atk=%d cost=%d gold=%d 강화횟수=%d" % [merc.atk, atk_upgrade_cost, gold, attack_upgrade_count])
+	if not v_task002 and attack_upgrade_count >= 1 and hits < first_hits:
+		v_task002 = true
+		print("[VERIFY] task002 PASS 강화=%d hits=%d(<%d) atk=%d" % [attack_upgrade_count, hits, first_hits, merc.atk])
+
+	# 두 검증 모두 통과해야 종료 코드 0
+	if v_task002 and v_task003:
+		print("[VERIFY] ALL PASS kills=%d level=%d atk=%d maxhp=%d" % [kill_count, level, merc.atk, merc.max_hp])
 		get_tree().quit(0)
-	if kill_count >= 60:
-		print("[VERIFY] FAIL no speedup kills=%d atk=%d" % [kill_count, merc.atk])
+	if kill_count >= 80:
+		print("[VERIFY] FAIL incomplete task002=%s task003=%s kills=%d" % [str(v_task002), str(v_task003), kill_count])
 		get_tree().quit(1)
 
 
@@ -322,13 +424,39 @@ func _apply_korean_font() -> void:
 	var f: Font = load(path)
 	status_label.add_theme_font_override("font", f)
 	upgrade_button.add_theme_font_override("font", f)
+	levelup_label.add_theme_font_override("font", f)
 
 
 func _build_status_label() -> void:
 	status_label = Label.new()
-	status_label.position = Vector2(16, 24)
+	status_label.position = Vector2(16, 20)
 	status_label.add_theme_font_size_override("font_size", 22)
 	add_child(status_label)
+
+
+func _build_exp_bar() -> void:
+	exp_bg = ColorRect.new()
+	exp_bg.color = Color(0, 0, 0, 0.5)
+	exp_bg.size = Vector2(508, 16)
+	exp_bg.position = Vector2(16, 92)
+	add_child(exp_bg)
+
+	exp_fill = ColorRect.new()
+	exp_fill.color = Color(0.55, 0.45, 0.95)   # 체력 바(초록/노랑)와 구분되는 보라
+	exp_fill.size = Vector2(0, 12)
+	exp_fill.position = Vector2(18, 94)
+	add_child(exp_fill)
+
+
+func _build_levelup_label() -> void:
+	levelup_label = Label.new()
+	levelup_label.position = Vector2(0, 300)
+	levelup_label.size = Vector2(SCREEN.x, 80)
+	levelup_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	levelup_label.add_theme_font_size_override("font_size", 52)
+	levelup_label.add_theme_color_override("font_color", Color(1.0, 0.92, 0.4))
+	levelup_label.visible = false
+	add_child(levelup_label)
 
 
 func _update_status() -> void:
@@ -337,7 +465,10 @@ func _update_status() -> void:
 	var enemy_hp := 0
 	if not enemy.is_empty():
 		enemy_hp = enemy.hp
-	status_label.text = "골드 %d   처치 %d   용병 HP %d/%d   적 HP %d" % [gold, kill_count, merc.hp, merc.max_hp, enemy_hp]
+	var need := _exp_to_next(level)
+	status_label.text = "레벨 %d   EXP %d/%d   골드 %d   처치 %d\n용병 HP %d/%d   적 HP %d" % [level, exp, need, gold, kill_count, merc.hp, merc.max_hp, enemy_hp]
+	if exp_fill != null:
+		exp_fill.size.x = 504.0 * clampf(float(exp) / float(need), 0.0, 1.0)
 
 
 # ── 골드 강화 (TASK_002) ─────────────────────────────────────────
@@ -369,4 +500,5 @@ func _do_upgrade() -> void:
 	gold -= atk_upgrade_cost
 	merc.atk += ATK_UPGRADE_AMOUNT
 	atk_upgrade_cost = int(round(atk_upgrade_cost * ATK_COST_MULTIPLIER))
+	attack_upgrade_count += 1
 	_update_upgrade_ui()
