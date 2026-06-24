@@ -174,6 +174,7 @@ func _process(delta: float) -> void:
 		elapsed += delta  # time_scale 적용된 게임 시간(초)
 
 	_update_status()
+	_sync_all_ui()   # 체력 바·이름표가 공격(lunge) 중에도 본체와 어긋나지 않게
 
 	if merc.state == DEAD:
 		_update_merc_revive(delta)
@@ -199,6 +200,7 @@ func _process(delta: float) -> void:
 			if enemy.body.position.x - merc.body.position.x <= COMBAT_RANGE:
 				enemy.state = COMBAT
 				merc.state = COMBAT
+				enemy["base_x"] = enemy.body.position.x   # 전투 위치를 lunge 복귀 기준으로 고정
 		COMBAT:
 			_combat(delta)
 		DEAD:
@@ -395,16 +397,27 @@ func _sync_enemy_ui() -> void:
 	_sync_goblin(enemy)
 
 
-# 적 본체와 함께 체력 바·이름표·방패를 이동시킨다
+# 유닛 본체와 함께 체력 바·이름표·방패·몽둥이를 이동시킨다(공격 시 어긋남 방지)
 func _sync_goblin(e: Dictionary) -> void:
 	var bx: float = e.body.position.x
 	e.hp_bg.position.x = bx - 2
 	e.hp_fill.position.x = bx
-	e.name_label.position.x = bx + e.bar_w * 0.5 - 90
+	if e.has("name_label"):
+		e.name_label.position.x = bx + e.bar_w * 0.5 - 90
 	if e.has("shield"):
 		e.shield.position.x = bx - 8
 	if e.has("club"):
 		e.club.position.x = bx - 14
+
+
+# 매 프레임 용병·적·대기 고블린의 체력 바를 본체에 맞춘다
+func _sync_all_ui() -> void:
+	if not merc.is_empty():
+		_sync_goblin(merc)
+	if not enemy.is_empty():
+		_sync_goblin(enemy)
+	for g in goblin_queue:
+		_sync_goblin(g)
 
 
 # 고블린 무리에서 현재 몇 번째인지 (현재, 전체) 반환
@@ -608,14 +621,14 @@ func _deal_to_enemy(dmg: int, label: String, big: bool) -> void:
 
 
 func _enemy_pushback() -> void:
-	# 강타 시 적이 짧게 밀렸다 돌아온다
+	# 강타 시 적이 짧게 밀렸다 돌아온다 (고정 기준 위치로 복귀)
 	if enemy.is_empty():
 		return
 	var b: ColorRect = enemy.body
-	var x0: float = b.position.x
+	var home: float = enemy.get("base_x", b.position.x)
 	var tw := create_tween()
-	tw.tween_property(b, "position:x", x0 + 24.0, 0.08)
-	tw.tween_property(b, "position:x", x0, 0.14)
+	tw.tween_property(b, "position:x", home + 24.0, 0.08)
+	tw.tween_property(b, "position:x", home, 0.14)
 
 
 func _show_damage_at(target: Dictionary, dmg: int, label: String, _big: bool) -> void:
@@ -1144,13 +1157,14 @@ func _update_merc_revive(delta: float) -> void:
 
 # ── 표현(타격감) ─────────────────────────────────────────────────
 func _lunge(unit: Dictionary, dist: float = 22.0) -> void:
-	# 공격 순간 앞으로 짧게 움직였다 복귀 (강타는 더 크게)
+	# 공격 순간 앞으로 짧게 움직였다 복귀. 항상 고정 기준 위치(home)로 돌아와
+	# 공격이 겹쳐도 본체가 조금씩 밀려나지 않게 한다.
 	var body: ColorRect = unit.body
 	var dir := 1.0 if unit == merc else -1.0
-	var start_x: float = body.position.x
+	var home: float = unit.get("base_x", body.position.x)
 	var tw := create_tween()
-	tw.tween_property(body, "position:x", start_x + dir * dist, 0.07)
-	tw.tween_property(body, "position:x", start_x, 0.10)
+	tw.tween_property(body, "position:x", home + dir * dist, 0.07)
+	tw.tween_property(body, "position:x", home, 0.10)
 
 
 func _flash(unit: Dictionary) -> void:
