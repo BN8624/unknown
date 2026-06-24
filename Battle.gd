@@ -26,7 +26,7 @@ const ENEMY_PROFILES := {
 	"shield": {"name": "방패병", "max_hp": 75, "atk": 8, "defense": 5, "interval": 1.5, "approach_speed": 130.0, "gold": 12, "exp": 10},
 }
 const ENEMY_SEQUENCE := ["wolf", "wolf", "wolf", "goblin", "goblin", "goblin", "shield"]
-const GOBLIN_GAP := 0.15            # 고블린 무리 내부 재등장 지연(초)
+const GOBLIN_SPACING := 82.0        # 무리 고블린 사이 가로 간격(겹치지 않게)
 
 # ── 성장: 골드와 공격력 강화 (TASK_002) ──────────────────────────
 const GOLD_PER_KILL := 5
@@ -55,7 +55,7 @@ const COMBO_MULT := 0.6       # 연격 추가 베기 배율
 const COMBO_CHANCE := 0.30
 const COUNTER_MULT := 1.2     # 반격 피해 배율
 const COUNTER_REDUCE := 0.6   # 반격 발동 시 받는 피해 (×0.6 = 40% 감소)
-const COUNTER_CHANCE := 0.25
+const COUNTER_EVERY := 3      # 적의 3번째 공격마다 확정 막기+반격 (결정적, TASK_007)
 
 # ── 화면/배치 기준 ────────────────────────────────────────────────
 const SCREEN := Vector2(540, 960)
@@ -108,10 +108,12 @@ var combo_trait_level := 0      # 연격
 var counter_trait_level := 0    # 반격
 var total_trait_points_earned := 0
 var power_attack_counter := 0   # 강타용 기본 공격 카운트
+var counter_hit_counter := 0    # 반격용 받는 공격 카운트 (3번째마다 발동)
 var rng := RandomNumberGenerator.new()
 var force_combo := 0            # 0=확률, 1=강제 발동, -1=강제 미발동 (검증용)
-var force_counter := 0
 var kfont: Font = null         # 한글 폰트 (런타임 생성 라벨에도 적용)
+var goblin_queue: Array = []   # 무리에서 대기 중인 고블린(앞에서부터 전투)
+var goblin_run_start := -1     # 현재 고블린 무리가 시작된 순환 인덱스 (-1=무리 아님)
 
 # 특성 UI
 var trait_button: Button
@@ -175,6 +177,9 @@ func _process(delta: float) -> void:
 			_advance(delta)
 			enemy.body.position.x -= enemy.approach_speed * delta
 			_sync_enemy_ui()
+			for g in goblin_queue:   # 대기 고블린도 함께 전진(줄 유지)
+				g.body.position.x -= enemy.approach_speed * delta
+				_sync_goblin(g)
 			if enemy.body.position.x - merc.body.position.x <= COMBAT_RANGE:
 				enemy.state = COMBAT
 				merc.state = COMBAT
@@ -250,19 +255,42 @@ func _build_merc() -> void:
 # ── 적 ───────────────────────────────────────────────────────────
 func _spawn_enemy() -> void:
 	# 검증 모드는 기준 적(기존 ENEMY_*, 보상 5/5)만 생성해 TASK_002~005 검증을 보존한다.
-	var typ := "verify"
-	var prof := {"name": "검증적", "max_hp": ENEMY_MAX_HP, "atk": ENEMY_ATK, "defense": ENEMY_DEF, "interval": ENEMY_INTERVAL, "approach_speed": ENEMY_APPROACH_SPEED, "gold": GOLD_PER_KILL, "exp": EXP_PER_KILL}
-	var wave_cur := 0
-	var wave_total := 0
-	if not verify_mode:
-		typ = ENEMY_SEQUENCE[enemy_seq_index % ENEMY_SEQUENCE.size()]
-		prof = ENEMY_PROFILES[typ]
-		if typ == "goblin":
-			var info := _goblin_wave_info(enemy_seq_index % ENEMY_SEQUENCE.size())
-			wave_cur = info.x
-			wave_total = info.y
+	if verify_mode:
+		var vprof := {"name": "검증적", "max_hp": ENEMY_MAX_HP, "atk": ENEMY_ATK, "defense": ENEMY_DEF, "interval": ENEMY_INTERVAL, "approach_speed": ENEMY_APPROACH_SPEED, "gold": GOLD_PER_KILL, "exp": EXP_PER_KILL}
+		enemy = _build_enemy("verify", vprof, 0, 0, ENEMY_SPAWN_X, true)
+		current_enemy_hits = 0
+		_sync_enemy_ui()
+		return
 
-	# 종류별 크기·색·실루엣 구분
+	var typ: String = ENEMY_SEQUENCE[enemy_seq_index % ENEMY_SEQUENCE.size()]
+	if typ == "goblin":
+		_spawn_goblin_wave(enemy_seq_index % ENEMY_SEQUENCE.size())
+		return
+	enemy = _build_enemy(typ, ENEMY_PROFILES[typ], 0, 0, ENEMY_SPAWN_X, true)
+	current_enemy_hits = 0
+	_sync_enemy_ui()
+
+
+# 고블린 무리: 3마리를 한 번에 줄지어 등장시킨다(겹치지 않게). 전투는 앞에서부터 한 마리씩.
+func _spawn_goblin_wave(start_idx: int) -> void:
+	goblin_run_start = start_idx
+	var total: int = _goblin_wave_info(start_idx).y
+	var prof: Dictionary = ENEMY_PROFILES["goblin"]
+	var built: Array = []
+	for i in range(total):
+		var g := _build_enemy("goblin", prof, i + 1, total, ENEMY_SPAWN_X + i * GOBLIN_SPACING, i == 0)
+		built.append(g)
+	enemy = built[0]
+	goblin_queue = built.slice(1)
+	enemy_seq_index = start_idx + total   # 무리 다음(방패병)으로
+	current_enemy_hits = 0
+	_sync_enemy_ui()
+	for g in goblin_queue:
+		_sync_goblin(g)
+
+
+# 적 한 마리를 노드와 함께 만들어 반환한다 (active=true면 이름표 표시)
+func _build_enemy(typ: String, prof: Dictionary, wave_cur: int, wave_total: int, sx: float, active: bool) -> Dictionary:
 	var bsize := Vector2(54, 74)
 	var bcolor := Color(0.90, 0.40, 0.35)
 	match typ:
@@ -272,38 +300,39 @@ func _spawn_enemy() -> void:
 			bsize = Vector2(42, 64); bcolor = Color(0.32, 0.72, 0.34)
 		"shield":
 			bsize = Vector2(66, 96); bcolor = Color(0.52, 0.57, 0.64)
-	var by: float = (GROUND_Y + 90) - bsize.y   # 바닥선에 발을 맞춘다
+	var by: float = (GROUND_Y + 90) - bsize.y
 	var bar_w: float = bsize.x
 
 	var body := ColorRect.new()
 	body.color = bcolor
 	body.size = bsize
-	body.position = Vector2(ENEMY_SPAWN_X, by)
+	body.position = Vector2(sx, by)
 	add_child(body)
 
 	var hp_bg := ColorRect.new()
 	hp_bg.color = Color(0, 0, 0, 0.6)
 	hp_bg.size = Vector2(bar_w + 4, 10)
-	hp_bg.position = Vector2(ENEMY_SPAWN_X - 2, by - 20)
+	hp_bg.position = Vector2(sx - 2, by - 20)
 	add_child(hp_bg)
 
 	var hp_fill := ColorRect.new()
 	hp_fill.color = Color(0.95, 0.75, 0.20)
 	hp_fill.size = Vector2(bar_w, 8)
-	hp_fill.position = Vector2(ENEMY_SPAWN_X, by - 19)
+	hp_fill.position = Vector2(sx, by - 19)
 	add_child(hp_fill)
 
 	var name_label := Label.new()
 	name_label.size = Vector2(180, 26)
-	name_label.position = Vector2(ENEMY_SPAWN_X + bar_w * 0.5 - 90, by - 48)
+	name_label.position = Vector2(sx + bar_w * 0.5 - 90, by - 48)
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_label.add_theme_font_size_override("font_size", 18)
 	name_label.text = ("고블린 무리 %d/%d" % [wave_cur, wave_total]) if typ == "goblin" else prof.name
+	name_label.visible = active   # 대기 고블린은 이름표 숨김
 	if kfont != null:
 		name_label.add_theme_font_override("font", kfont)
 	add_child(name_label)
 
-	enemy = {
+	var e := {
 		"type": typ, "name": prof.name,
 		"body": body, "hp_bg": hp_bg, "hp_fill": hp_fill, "name_label": name_label, "bar_w": bar_w,
 		"max_hp": prof.max_hp, "hp": prof.max_hp,
@@ -312,29 +341,28 @@ func _spawn_enemy() -> void:
 		"gold_reward": prof.gold, "exp_reward": prof.exp,
 		"atk_timer": 0.0, "state": WALK,
 	}
-
-	# 방패병: 몸 앞(용병 쪽)에 시각용 방패 도형
 	if typ == "shield":
 		var sh := ColorRect.new()
 		sh.color = Color(0.78, 0.82, 0.9)
 		sh.size = Vector2(14, 56)
-		sh.position = Vector2(ENEMY_SPAWN_X - 8, by + 20)
+		sh.position = Vector2(sx - 8, by + 20)
 		add_child(sh)
-		enemy["shield"] = sh
-
-	current_enemy_hits = 0
-	_sync_enemy_ui()
+		e["shield"] = sh
+	return e
 
 
 func _sync_enemy_ui() -> void:
-	# 적 본체와 함께 체력 바·이름표·방패를 이동시킨다
-	var bx: float = enemy.body.position.x
-	var bar_w: float = enemy.bar_w
-	enemy.hp_bg.position.x = bx - 2
-	enemy.hp_fill.position.x = bx
-	enemy.name_label.position.x = bx + bar_w * 0.5 - 90
-	if enemy.has("shield"):
-		enemy.shield.position.x = bx - 8
+	_sync_goblin(enemy)
+
+
+# 적 본체와 함께 체력 바·이름표·방패를 이동시킨다
+func _sync_goblin(e: Dictionary) -> void:
+	var bx: float = e.body.position.x
+	e.hp_bg.position.x = bx - 2
+	e.hp_fill.position.x = bx
+	e.name_label.position.x = bx + e.bar_w * 0.5 - 90
+	if e.has("shield"):
+		e.shield.position.x = bx - 8
 
 
 # 고블린 무리에서 현재 몇 번째인지 (현재, 전체) 반환
@@ -408,10 +436,13 @@ func _roll_combo() -> bool:
 		return force_combo == 1
 	return rng.randf() < COMBO_CHANCE
 
-func _roll_counter() -> bool:
-	if force_counter != 0:
-		return force_counter == 1
-	return rng.randf() < COUNTER_CHANCE
+# 반격: 받는 공격을 세어 3번째마다 확정 발동 (결정적, 확률 아님)
+func _consume_counter() -> bool:
+	counter_hit_counter += 1
+	if counter_hit_counter >= COUNTER_EVERY:
+		counter_hit_counter = 0
+		return true
+	return false
 
 # 연격 추가 베기가 발동하는 조건 (적이 살아 있어야 함)
 func _combo_would_trigger(enemy_alive: bool) -> bool:
@@ -438,7 +469,7 @@ func _merc_basic_attack() -> void:
 
 func _enemy_attack_merc() -> void:
 	var base := _damage(enemy.atk, merc.defense)
-	var did_counter: bool = counter_trait_level > 0 and _roll_counter()
+	var did_counter: bool = counter_trait_level > 0 and _consume_counter()
 	var taken := _counter_reduced(base) if did_counter else base
 	merc.hp = max(0, merc.hp - taken)
 	_update_hp_bar(merc)
@@ -553,13 +584,22 @@ func _kill_enemy() -> void:
 	merc.state = WALK
 	merc.atk_timer = 0.0
 
-	# 적 순환 전진 + 다음 등장 지연(고블린 무리 내부는 짧게)
+	# 고블린 무리: 대기 중인 다음 고블린을 즉시 앞으로 승격
+	if not verify_mode and killed_type == "goblin" and not goblin_queue.is_empty():
+		enemy = goblin_queue.pop_front()
+		enemy.name_label.visible = true
+		current_enemy_hits = 0
+		respawn_timer = 0.0   # 이미 화면에 있으므로 대기 없이 전진
+		_update_upgrade_ui()
+		return
+
+	# 순환 전진 + 다음 등장 지연 (고블린 무리 인덱스는 무리 시작 시 이미 전진됨)
 	if not verify_mode:
-		enemy_seq_index += 1
-		var nxt: String = ENEMY_SEQUENCE[enemy_seq_index % ENEMY_SEQUENCE.size()]
-		respawn_timer = GOBLIN_GAP if (killed_type == "goblin" and nxt == "goblin") else RESPAWN_DELAY
-	else:
-		respawn_timer = RESPAWN_DELAY
+		if killed_type == "goblin":
+			goblin_run_start = -1   # 무리의 마지막 고블린 처치
+		else:
+			enemy_seq_index += 1
+	respawn_timer = RESPAWN_DELAY
 	_update_upgrade_ui()
 
 	if verify_mode:
@@ -710,7 +750,7 @@ func _verify_step(hits: int) -> void:
 		_verify_enemies()
 	# 모든 검증 통과 시 종료 코드 0
 	if base5 and v_traits and v_enemies:
-		print("[VERIFY] ALL PASS TASK_001~006 kills=%d lv=%d atk=%d def=%d maxhp=%d" % [kill_count, level, merc.atk, merc.defense, merc.max_hp])
+		print("[VERIFY] ALL PASS TASK_001~007 kills=%d lv=%d atk=%d def=%d maxhp=%d" % [kill_count, level, merc.atk, merc.defense, merc.max_hp])
 		get_tree().quit(0)
 	if kill_count >= 120:
 		_vfail("incomplete dmg=%s hp=%s def=%s t002=%s t003=%s traits=%s enemies=%s kills=%d" % [str(v_damage), str(v_hp), str(v_def), str(v_task002), str(v_task003), str(v_traits), str(v_enemies), kill_count])
@@ -784,7 +824,7 @@ func _verify_traits() -> void:
 	force_combo = 0
 	print("[VERIFY] 연격 PASS dmg=%d 강제발동/미발동/죽은적가드" % cdv)
 
-	# 5) 반격: 받는 피해 감소 + 반격 피해 + 강제 발동/미발동
+	# 5) 반격: 받는 피해 감소 + 반격 피해 + 결정적 3번째마다 발동
 	var base := _damage(ENEMY_ATK, MERC_DEF)   # 6-2=4
 	var reduced := _counter_reduced(base)       # round(4*0.6)=2
 	if reduced != 2:
@@ -793,14 +833,14 @@ func _verify_traits() -> void:
 	if ctd != maxi(1, int(round(merc.atk * COUNTER_MULT))):
 		_vfail("반격 dmg=%d" % ctd); return
 	counter_trait_level = 1
-	force_counter = 1
-	if not _roll_counter():
-		_vfail("반격 강제발동 실패"); return
-	force_counter = -1
-	if _roll_counter():
-		_vfail("반격 강제미발동 실패"); return
-	force_counter = 0
-	print("[VERIFY] 반격 PASS 받는피해 %d→%d 반격피해=%d" % [base, reduced, ctd])
+	counter_hit_counter = 0
+	var cseq: Array = []
+	for i in range(6):
+		cseq.append(_consume_counter())
+	if cseq != [false, false, true, false, false, true]:
+		_vfail("반격 발동열 %s" % str(cseq)); return
+	counter_hit_counter = 0
+	print("[VERIFY] 반격 PASS 받는피해 %d→%d 반격피해=%d 3타째확정" % [base, reduced, ctd])
 
 	# 6) 충돌: 강타+연격 동시 → 4번째는 강타만, 연격 미발동
 	power_trait_level = 1
@@ -821,11 +861,11 @@ func _verify_traits() -> void:
 
 	# 검증으로 바꾼 상태 복원
 	force_combo = 0
-	force_counter = 0
 	power_trait_level = 0
 	combo_trait_level = 0
 	counter_trait_level = 0
 	power_attack_counter = 0
+	counter_hit_counter = 0
 	level = save_level
 	_update_trait_ui()
 	v_traits = true
@@ -886,7 +926,8 @@ func _kill_merc() -> void:
 	merc.state = DEAD
 	merc.body.modulate = Color(0.5, 0.5, 0.5)
 	merc_revive_timer = MERC_DEATH_DELAY
-	power_attack_counter = 0   # 사망 시 강타 카운트 초기화
+	power_attack_counter = 0   # 사망 시 강타·반격 카운트 초기화
+	counter_hit_counter = 0
 	if verify_mode:
 		print("[VERIFY] merc died, reviving")
 
@@ -904,6 +945,14 @@ func _update_merc_revive(delta: float) -> void:
 	if not enemy.is_empty():
 		_free_enemy_nodes(enemy)   # 현재 적 제거 (순환 위치는 유지 — 같은 적이 다시 등장)
 		enemy = {}
+	# 고블린 무리 중 사망: 대기 고블린 정리하고 무리를 처음부터 다시 시작
+	if not goblin_queue.is_empty():
+		for g in goblin_queue:
+			_free_enemy_nodes(g)
+		goblin_queue = []
+	if goblin_run_start >= 0:
+		enemy_seq_index = goblin_run_start
+		goblin_run_start = -1
 	respawn_timer = RESPAWN_DELAY
 
 
@@ -1210,6 +1259,7 @@ func _reset_traits() -> void:
 	combo_trait_level = 0
 	counter_trait_level = 0
 	power_attack_counter = 0
+	counter_hit_counter = 0
 	_update_trait_ui()
 
 
