@@ -5,17 +5,17 @@ extends Node2D
 const MERC_MAX_HP := 100
 const MERC_ATK := 10
 const MERC_DEF := 2             # 용병 시작 방어력
-const MERC_INTERVAL := 1.0      # 용병 공격 간격(초)
+const MERC_INTERVAL := 0.7      # 용병 공격 간격(초) — 템포 단축
 
 const ENEMY_MAX_HP := 30
 const ENEMY_ATK := 6            # 방어력 2 도입 상쇄: 6-2=4로 기존 실제 피해 유지
 const ENEMY_DEF := 0            # 일반 적 방어력
-const ENEMY_INTERVAL := 1.5     # 적 공격 간격(초)
+const ENEMY_INTERVAL := 1.0     # 적 공격 간격(초) — 템포 단축
 
-const ENEMY_APPROACH_SPEED := 130.0   # 적 접근 속도(px/s)
-const SCROLL_SPEED := 130.0           # 전진 시 배경 스크롤 속도(px/s)
+const ENEMY_APPROACH_SPEED := 185.0   # 적 접근 속도(px/s) — 빨리 붙게
+const SCROLL_SPEED := 150.0           # 전진 시 배경 스크롤 속도(px/s)
 const COMBAT_RANGE := 150.0           # 이 거리 안이면 전투 시작
-const RESPAWN_DELAY := 0.7            # 적 처치 후 다음 적까지 대기(초)
+const RESPAWN_DELAY := 0.4            # 적 처치 후 다음 적까지 대기(초) — 단축
 const MERC_DEATH_DELAY := 1.0        # 용병 사망 후 재시작 대기(초)
 
 # ── 성장: 골드와 공격력 강화 (TASK_002) ──────────────────────────
@@ -344,7 +344,10 @@ func _merc_basic_attack() -> void:
 	_lunge(merc)
 	_deal_to_enemy(_damage(merc.atk, enemy.defense), "", false)
 	if _combo_would_trigger(not enemy.is_empty() and enemy.hp > 0):
-		_lunge(merc, 30.0)
+		# 연격: 빠른 추가 전진 + 청록 잔상·발광으로 "한 번 더 벴다"가 보이게
+		_lunge(merc, 34.0)
+		_tint(merc, Color(0.5, 1.5, 1.7), 0.22)
+		_spawn_ghost(merc, Color(0.4, 0.95, 1.0, 0.55))
 		_deal_to_enemy(_combo_damage(merc.atk, enemy.defense), "추가 베기", false)
 
 
@@ -355,15 +358,20 @@ func _enemy_attack_merc() -> void:
 	merc.hp = max(0, merc.hp - taken)
 	_update_hp_bar(merc)
 	_lunge(enemy)
-	_flash(merc)
+	if did_counter:
+		_tint(merc, Color(0.5, 0.8, 1.7), 0.22)   # 방어: 파랗게 번쩍
+	else:
+		_flash(merc)
 	_show_damage_at(merc, taken, "방어" if did_counter else "", false)
 	# 감소된 피해로도 살아 있으면 즉시 반격
 	if did_counter and merc.hp > 0 and not enemy.is_empty():
-		enemy.hp = max(0, enemy.hp - _counter_damage(merc.atk, enemy.defense))
+		var cd := _counter_damage(merc.atk, enemy.defense)
+		enemy.hp = max(0, enemy.hp - cd)
 		_update_hp_bar(enemy)
-		_lunge(merc)
+		_lunge(merc, 44.0)                          # 되받아치는 큰 전진
+		_spawn_ghost(merc, Color(1.0, 0.7, 0.3, 0.55))
 		_flash(enemy)
-		_show_damage_at(enemy, _counter_damage(merc.atk, enemy.defense), "반격", false)
+		_show_damage_at(enemy, cd, "반격", false)
 
 
 func _deal_to_enemy(dmg: int, label: String, big: bool) -> void:
@@ -387,21 +395,58 @@ func _enemy_pushback() -> void:
 	tw.tween_property(b, "position:x", x0, 0.14)
 
 
-func _show_damage_at(target: Dictionary, dmg: int, label: String, big: bool) -> void:
+func _show_damage_at(target: Dictionary, dmg: int, label: String, _big: bool) -> void:
 	# 실제 피해 숫자(+선택적 특성 문구)를 대상 근처에 잠깐 띄운다 (공격마다 한 번)
+	# 특성별로 색과 크기를 달리해 구분이 잘 되게 한다.
+	var col := Color(1, 1, 1)
+	var fs := 28
+	match label:
+		"강타":
+			col = Color(1.0, 0.85, 0.3); fs = 46
+		"추가 베기":
+			col = Color(0.4, 0.95, 1.0); fs = 34
+		"방어":
+			col = Color(0.55, 0.8, 1.0); fs = 28
+		"반격":
+			col = Color(1.0, 0.6, 0.2); fs = 38
 	var b: ColorRect = target.body
 	var lbl := Label.new()
 	lbl.text = ("%s -%d" % [label, dmg]) if label != "" else "-%d" % dmg
-	lbl.add_theme_font_size_override("font_size", 42 if big else 28)
-	lbl.add_theme_color_override("font_color", Color(1.0, 0.9, 0.4) if big else Color(1, 1, 1))
+	lbl.add_theme_font_size_override("font_size", fs)
+	lbl.add_theme_color_override("font_color", col)
 	if kfont != null:
 		lbl.add_theme_font_override("font", kfont)
 	lbl.position = Vector2(b.position.x - 6, b.position.y - 30)
 	add_child(lbl)
 	var tw := create_tween()
-	tw.tween_property(lbl, "position:y", lbl.position.y - 36, 0.55)
+	tw.tween_property(lbl, "position:y", lbl.position.y - 38, 0.55)
 	tw.parallel().tween_property(lbl, "modulate:a", 0.0, 0.55)
 	tw.tween_callback(lbl.queue_free)
+
+
+func _tint(unit: Dictionary, color: Color, dur: float) -> void:
+	# 유닛 본체를 잠깐 특정 색으로 물들였다 복귀 (특성 강조용)
+	var body: ColorRect = unit.body
+	if unit.get("state", -1) == DEAD:
+		return
+	body.modulate = color
+	var tw := create_tween()
+	tw.tween_property(body, "modulate", Color.WHITE, dur)
+
+
+func _spawn_ghost(unit: Dictionary, color: Color) -> void:
+	# 앞으로 흐르며 사라지는 잔상 (연격·반격 강조용)
+	var src: ColorRect = unit.body
+	var g := ColorRect.new()
+	g.color = color
+	g.size = src.size
+	g.position = src.position
+	g.z_index = -1
+	add_child(g)
+	var tw := create_tween()
+	tw.tween_property(g, "position:x", g.position.x + 48.0, 0.28)
+	tw.parallel().tween_property(g, "modulate:a", 0.0, 0.28)
+	tw.tween_callback(g.queue_free)
 
 
 func _kill_enemy() -> void:
