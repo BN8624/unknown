@@ -1,0 +1,16 @@
+; Godot 프로젝트 설정 — 세로형 540x960 최소 자동전투 프로토타입
+
+config_version=5
+
+[application]
+
+config/name="unknown"
+run/main_scene="res://Battle.tscn"
+config/features=PackedStringArray("4.7")
+
+[display]
+
+window/size/viewport_width=540
+window/size/viewport_height=960
+window/stretch/mode="canvas_items"
+window/stretch/aspect="keep"
