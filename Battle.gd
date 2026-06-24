@@ -57,6 +57,9 @@ const COUNTER_MULT := 1.2     # 반격 피해 배율
 const COUNTER_REDUCE := 0.6   # 반격 발동 시 받는 피해 (×0.6 = 40% 감소)
 const COUNTER_EVERY := 3      # 적의 3번째 공격마다 확정 막기+반격 (결정적, TASK_007)
 
+# 임시(TEMP): 특성 테스트용으로 시작 시 특성 포인트 지급. 정식 빌드 전 제거.
+const DEBUG_START_TRAIT_POINTS := 3
+
 # ── 화면/배치 기준 ────────────────────────────────────────────────
 const SCREEN := Vector2(540, 960)
 const MERC_X := 162.0            # 화면 왼쪽 약 30% 지점
@@ -151,6 +154,10 @@ func _ready() -> void:
 	_spawn_enemy()
 	if verify_mode:
 		Engine.time_scale = 8.0  # 검증 시간 단축 (수치는 그대로, 시간만 가속)
+	# 임시(TEMP): 레벨 10 전이라도 특성을 바로 시험하도록 시작 포인트 지급
+	if not verify_mode and DEBUG_START_TRAIT_POINTS > 0:
+		trait_points += DEBUG_START_TRAIT_POINTS
+		_update_trait_ui()
 
 
 func _process(delta: float) -> void:
