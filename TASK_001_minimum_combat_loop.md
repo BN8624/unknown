@@ -27,14 +27,14 @@
 작업 전에 다음 순서로 읽는다.
 
 1. `CLAUDE.md`
-2. `unknown.md`
+2. `UNKNOWN.md`
 3. `HANDOFF.md`
 4. `checklist.md`
 5. `context-notes.md`
 
-`unknown.md`는 게임 기획 정본이다.
+`UNKNOWN.md`는 게임 기획 정본이다.
 
-이번 작업에서 `unknown.md`와 `CLAUDE.md`는 수정하지 않는다.
+이번 작업에서 `UNKNOWN.md`와 `CLAUDE.md`는 수정하지 않는다.
 
 ---
 
