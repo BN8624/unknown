@@ -57,6 +57,7 @@ func _ready() -> void:
 	_build_background()
 	_build_status_label()
 	_build_upgrade_ui()
+	_apply_korean_font()
 	_build_merc()
 	_spawn_enemy()
 	if verify_mode:
@@ -312,6 +313,17 @@ func _update_hp_bar(unit: Dictionary) -> void:
 
 
 # ── 상단 상태 표시 ───────────────────────────────────────────────
+func _apply_korean_font() -> void:
+	# 웹 기본 폰트에는 한글 글리프가 없어 깨진다. 한글 폰트가 있으면 적용한다.
+	# (폰트 파일은 공개 저장소에 커밋하지 않으므로 없으면 그냥 넘어간다.)
+	var path := "res://malgun.ttf"
+	if not ResourceLoader.exists(path):
+		return
+	var f: Font = load(path)
+	status_label.add_theme_font_override("font", f)
+	upgrade_button.add_theme_font_override("font", f)
+
+
 func _build_status_label() -> void:
 	status_label = Label.new()
 	status_label.position = Vector2(16, 24)
