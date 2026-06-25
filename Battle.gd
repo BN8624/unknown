@@ -2014,6 +2014,16 @@ func _build_boss_ui() -> void:
 	boss_state_label.add_theme_font_size_override("font_size", 20)
 	boss_state_label.add_theme_color_override("font_color", Color(0.8, 0.9, 1.0))
 	boss_ui.add_child(boss_state_label)
+	# 화면 전체를 덮는 정보 패널이라 터치를 가로채지 않게 한다(아래 강화 버튼 등 입력 통과)
+	_ignore_mouse(boss_ui)
+
+
+# 컨트롤과 그 자식 전부가 터치/마우스를 가로채지 않게 설정(정보 표시 전용 오버레이)
+func _ignore_mouse(node: Node) -> void:
+	if node is Control:
+		(node as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for c in node.get_children():
+		_ignore_mouse(c)
 
 
 func _build_boss_progress_label() -> void:
@@ -2046,6 +2056,7 @@ func _build_boss_result_panel() -> void:
 	boss_result_label.add_theme_font_size_override("font_size", 28)
 	boss_result_label.add_theme_color_override("font_color", Color(1.0, 0.95, 0.8))
 	boss_result_panel.add_child(boss_result_label)
+	_ignore_mouse(boss_result_panel)   # 결과 표시 중 입력이 멈춘 것처럼 느껴지지 않게
 
 
 # 천 단위 구분 기호로 빚을 표기 (10000 → "10,000")
@@ -2449,7 +2460,7 @@ func _do_atk_upgrade() -> void:
 	merc.atk += ATK_UPGRADE_AMOUNT
 	atk_upgrade_cost = int(round(atk_upgrade_cost * ATK_COST_MULTIPLIER))
 	attack_upgrade_count += 1
-	_update_upgrade_ui()
+	_update_upgrade_ui.call_deferred()   # 골드 소진 시 버튼 비활성화를 다음 프레임으로 미뤄 입력 삼킴 방지
 	_save_now()
 
 
@@ -2460,7 +2471,7 @@ func _do_hp_upgrade() -> void:
 	hp_upgrade_cost = int(round(hp_upgrade_cost * HP_COST_MULTIPLIER))
 	hp_upgrade_count += 1
 	_update_hp_bar(merc)
-	_update_upgrade_ui()
+	_update_upgrade_ui.call_deferred()
 	_save_now()
 
 
@@ -2469,7 +2480,7 @@ func _do_def_upgrade() -> void:
 	merc.defense += DEF_UPGRADE_AMOUNT
 	def_upgrade_cost = int(round(def_upgrade_cost * DEF_COST_MULTIPLIER))
 	def_upgrade_count += 1
-	_update_upgrade_ui()
+	_update_upgrade_ui.call_deferred()
 	_save_now()
 
 
@@ -2599,7 +2610,7 @@ func _invest_power() -> void:
 	if trait_points > 0 and power_trait_level < 1:
 		power_trait_level = 1
 		trait_points -= 1
-		_update_trait_ui()
+		_update_trait_ui.call_deferred()   # 다음 프레임 갱신 — 방금 누른 버튼 비활성화가 다음 터치를 삼키지 않게
 		_save_now()
 
 
@@ -2607,7 +2618,7 @@ func _invest_combo() -> void:
 	if trait_points > 0 and combo_trait_level < 1:
 		combo_trait_level = 1
 		trait_points -= 1
-		_update_trait_ui()
+		_update_trait_ui.call_deferred()
 		_save_now()
 
 
@@ -2615,7 +2626,7 @@ func _invest_counter() -> void:
 	if trait_points > 0 and counter_trait_level < 1:
 		counter_trait_level = 1
 		trait_points -= 1
-		_update_trait_ui()
+		_update_trait_ui.call_deferred()
 		_save_now()
 
 
@@ -2627,7 +2638,7 @@ func _reset_traits() -> void:
 	counter_trait_level = 0
 	power_attack_counter = 0
 	counter_hit_counter = 0
-	_update_trait_ui()
+	_update_trait_ui.call_deferred()
 	_save_now()
 
 
