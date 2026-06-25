@@ -88,8 +88,13 @@ const COUNTER_MULT := 1.2     # 반격 피해 배율
 const COUNTER_REDUCE := 0.6   # 반격 발동 시 받는 피해 (×0.6 = 40% 감소)
 const COUNTER_EVERY := 3      # 적의 3번째 공격마다 확정 막기+반격 (결정적, TASK_007)
 
-# 임시(TEMP): 특성 테스트용으로 시작 시 특성 포인트 지급. 정식 빌드 전 제거.
-const DEBUG_START_TRAIT_POINTS := 3
+# ── 저장·불러오기 (TASK_011) ─────────────────────────────────────
+const SAVE_PATH := "user://save_v1.json"
+const VERIFY_SAVE_PATH := "user://save_test_v1.json"   # 검증 전용(실제 저장과 분리)
+const SAVE_VERSION := 1
+const AUTOSAVE_DELAY := 2.0          # 마지막 변경 후 자동 저장까지 대기(초)
+const FAME_NAMELESS := "무명 용병"
+const FAME_ROOKIE := "풋내기 용병"
 
 # ── 화면/배치 기준 ────────────────────────────────────────────────
 const SCREEN := Vector2(540, 960)
@@ -158,11 +163,18 @@ var boss_time_left := BOSS_TIME_LIMIT
 # 빚·명성 상태 (TASK_010). 저장 없음 — 재실행 시 초기값으로.
 var debt_remaining := STARTING_DEBT
 var debt_paid_total := 0
-var fame_rank := "무명 용병"
+var fame_rank := FAME_NAMELESS
 var fame_advanced := false
 var bruno_settlement_done := false   # 브루노 처치 정산(골드·경험치·빚·명성) 중복 방지
 var last_debt_before := 0            # 결과 화면용: 상환 직전 남은 빚
 var last_payment := 0                # 결과 화면용: 이번 실제 상환액
+
+# 저장·불러오기 상태 (TASK_011)
+var save_dirty := false              # 변경 후 자동 저장 대기 중인가
+var autosave_timer := 0.0
+var load_error := false              # 저장 손상·미지원으로 새 게임 시작했는가
+var reset_confirm_timer := 0.0       # 저장 초기화 2회 확인 창(초)
+var save_reset_btn: Button
 
 # 특성 UI
 var trait_button: Button
@@ -198,6 +210,7 @@ var v_enemies := false
 var v_ogre := false
 var v_boss := false
 var v_debt := false
+var v_save := false
 var v_phase := 0   # 검증 강화 순서: 0=체력, 1=방어력, 2=공격력
 
 
@@ -216,13 +229,15 @@ func _ready() -> void:
 	_build_boss_result_panel()
 	_apply_korean_font()
 	_build_merc()
+	# 저장 데이터 불러오기 → UI 갱신 후 첫 적 생성 (검증 모드는 실제 저장을 건드리지 않음)
+	var loaded := false
+	if not verify_mode:
+		loaded = _load_game()
 	_spawn_enemy()
 	if verify_mode:
 		Engine.time_scale = 8.0  # 검증 시간 단축 (수치는 그대로, 시간만 가속)
-	# 임시(TEMP): 레벨 10 전이라도 특성을 바로 시험하도록 시작 포인트 지급
-	if not verify_mode and DEBUG_START_TRAIT_POINTS > 0:
-		trait_points += DEBUG_START_TRAIT_POINTS
-		_update_trait_ui()
+	if not verify_mode and loaded:
+		_show_notice("저장 데이터 불러옴", 1.0)
 
 
 func _process(delta: float) -> void:
@@ -231,6 +246,8 @@ func _process(delta: float) -> void:
 
 	_update_status()
 	_sync_all_ui()   # 체력 바·이름표가 공격(lunge) 중에도 본체와 어긋나지 않게
+	_update_autosave(delta)
+	_update_reset_confirm(delta)
 
 	if merc.state == DEAD:
 		_update_merc_revive(delta)
@@ -1049,6 +1066,7 @@ func _kill_enemy() -> void:
 		gold += enemy.gold_reward
 		exp += enemy.exp_reward
 		_check_level_up()
+		_mark_dirty()               # 적 처치 성장은 지연 자동 저장
 	if not verify_mode and was_boss:
 		boss_due = false
 		boss_fight_active = false
@@ -1107,8 +1125,9 @@ func _bruno_settlement() -> void:
 	debt_paid_total += last_payment
 	if not fame_advanced:
 		fame_advanced = true
-		fame_rank = "풋내기 용병"
+		fame_rank = FAME_ROOKIE
 	_check_level_up()                   # 경험치 +100으로 레벨업 조건을 넘으면 즉시 처리
+	_save_now()                         # 결과 패널 표시 전에 정산 결과를 저장
 
 
 # 현재 레벨에서 다음 레벨까지 필요한 경험치
@@ -1259,12 +1278,14 @@ func _verify_step(hits: int) -> void:
 		_verify_boss()
 	if base5 and v_traits and v_enemies and v_ogre and v_boss and not v_debt:
 		_verify_debt_fame()
+	if base5 and v_traits and v_enemies and v_ogre and v_boss and v_debt and not v_save:
+		_verify_save()
 	# 모든 검증 통과 시 종료 코드 0
-	if base5 and v_traits and v_enemies and v_ogre and v_boss and v_debt:
-		print("[VERIFY] ALL PASS TASK_001~010 kills=%d lv=%d atk=%d def=%d maxhp=%d" % [kill_count, level, merc.atk, merc.defense, merc.max_hp])
+	if base5 and v_traits and v_enemies and v_ogre and v_boss and v_debt and v_save:
+		print("[VERIFY] ALL PASS TASK_001~011 kills=%d lv=%d atk=%d def=%d maxhp=%d" % [kill_count, level, merc.atk, merc.defense, merc.max_hp])
 		get_tree().quit(0)
 	if kill_count >= 120:
-		_vfail("incomplete dmg=%s hp=%s def=%s t002=%s t003=%s traits=%s enemies=%s ogre=%s boss=%s debt=%s kills=%d" % [str(v_damage), str(v_hp), str(v_def), str(v_task002), str(v_task003), str(v_traits), str(v_enemies), str(v_ogre), str(v_boss), str(v_debt), kill_count])
+		_vfail("incomplete dmg=%s hp=%s def=%s t002=%s t003=%s traits=%s enemies=%s ogre=%s boss=%s debt=%s save=%s kills=%d" % [str(v_damage), str(v_hp), str(v_def), str(v_task002), str(v_task003), str(v_traits), str(v_enemies), str(v_ogre), str(v_boss), str(v_debt), str(v_save), kill_count])
 
 
 # ── TASK_005 특성 검증 (확률 비의존, 강제 발동 경로) ─────────────
@@ -1679,6 +1700,109 @@ func _verify_debt_fame() -> void:
 	print("[VERIFY] task010 빚·명성 ALL PASS")
 
 
+# 검증용: 테스트 저장 경로에 원시 텍스트 기록
+func _write_test_save_raw(text: String) -> void:
+	var f := FileAccess.open(VERIFY_SAVE_PATH, FileAccess.WRITE)
+	f.store_string(text)
+	f.flush()
+	f.close()
+
+
+# ── TASK_011 저장·불러오기 검증 (테스트 경로만 사용, 결정적) ─────
+func _verify_save() -> void:
+	# 실제 사용자 저장 경로를 절대 건드리지 않는다
+	if _get_save_path() != VERIFY_SAVE_PATH:
+		_vfail("검증 저장 경로 %s (테스트 경로 아님)" % _get_save_path()); return
+	var pre := _build_save_dict()   # 진행 중 상태 백업(끝에 복원)
+	_delete_save_file()
+
+	# 1) 저장 없음 → 새 게임. 초기 상태 함수가 신규 게임 기본값을 만드는지 확인.
+	if _load_game():
+		_vfail("저장 없는데 load=true"); return
+	_reset_to_new_game()
+	if level != 1 or gold != 0 or trait_points != 0 or total_trait_points_earned != 0 \
+		or power_trait_level != 0 or combo_trait_level != 0 or counter_trait_level != 0 \
+		or boss_defeated or debt_remaining != STARTING_DEBT or fame_rank != FAME_NAMELESS \
+		or merc.atk != MERC_ATK or merc.max_hp != MERC_MAX_HP or merc.defense != MERC_DEF:
+		_vfail("신규 게임 상태 lv=%d gold=%d pts=%d atk=%d 임시포인트?" % [level, gold, trait_points, merc.atk]); return
+	print("[VERIFY] TASK_011 fresh state PASS (lv1·골드0·포인트0·빚10000·무명, 임시 포인트 없음)")
+
+	# 2) 저장·불러오기 왕복 (브루노 처치 상태)
+	level = 12; exp = 7; gold = 123
+	attack_upgrade_count = 2; hp_upgrade_count = 1; def_upgrade_count = 3
+	power_trait_level = 1; combo_trait_level = 0; counter_trait_level = 0
+	boss_defeated = true; bruno_settlement_done = true
+	debt_remaining = 9500; debt_paid_total = 500; fame_rank = FAME_ROOKIE; fame_advanced = true
+	_save_game()
+	_reset_to_new_game()            # 모든 값을 초기화한 뒤 다시 불러온다
+	if not _load_game():
+		_vfail("왕복 load 실패"); return
+	if level != 12 or exp != 7 or gold != 123 \
+		or attack_upgrade_count != 2 or hp_upgrade_count != 1 or def_upgrade_count != 3 \
+		or power_trait_level != 1 or combo_trait_level != 0 or counter_trait_level != 0 \
+		or not boss_defeated or not bruno_settlement_done \
+		or debt_remaining != 9500 or debt_paid_total != 500 or fame_rank != FAME_ROOKIE or not fame_advanced:
+		_vfail("왕복 복원 lv=%d exp=%d gold=%d up=%d/%d/%d tr=%d/%d/%d bd=%s debt=%d fame=%s" % [level, exp, gold, attack_upgrade_count, hp_upgrade_count, def_upgrade_count, power_trait_level, combo_trait_level, counter_trait_level, str(boss_defeated), debt_remaining, fame_rank]); return
+	print("[VERIFY] TASK_011 save roundtrip PASS (lv12·골드123·강화2/1/3·강타1·브루노·빚9500·풋내기)")
+
+	# 3) 파생 능력치 (시작값 + 강화 + 레벨업으로 재계산)
+	if merc.atk != 25 or merc.max_hp != 175 or merc.defense != 5 or merc.hp != merc.max_hp:
+		_vfail("파생 atk=%d maxhp=%d def=%d hp=%d (기대 25/175/5/완전회복)" % [merc.atk, merc.max_hp, merc.defense, merc.hp]); return
+	print("[VERIFY] TASK_011 derived stats PASS (공격 25·최대체력 175·방어 5·완전회복)")
+
+	# 4) 강화 비용 재계산
+	if atk_upgrade_cost != 39 or hp_upgrade_cost != 28 or def_upgrade_cost != 69:
+		_vfail("비용 atk=%d hp=%d def=%d (기대 39/28/69)" % [atk_upgrade_cost, hp_upgrade_cost, def_upgrade_cost]); return
+	print("[VERIFY] TASK_011 upgrade cost PASS (공격 39·체력 28·방어 69)")
+
+	# 5) 특성 포인트 재계산 (레벨 12 → 총 1, 강타 투자 1 → 보유 0)
+	if total_trait_points_earned != 1 or trait_points != 0:
+		_vfail("포인트 총=%d 보유=%d (기대 1/0)" % [total_trait_points_earned, trait_points]); return
+	print("[VERIFY] TASK_011 traits PASS (총 포인트 1·강타 1·보유 0)")
+
+	# 6) 런타임 전투 상태는 복원하지 않는다 (첫 늑대부터, 카운터 0, boss_defeated만 유지)
+	if enemy_seq_index != 0 or boss_due or boss_fight_active or power_attack_counter != 0 or counter_hit_counter != 0 or not is_equal_approx(boss_time_left, BOSS_TIME_LIMIT):
+		_vfail("런타임 seq=%d due=%s active=%s 카운터=%d/%d" % [enemy_seq_index, str(boss_due), str(boss_fight_active), power_attack_counter, counter_hit_counter]); return
+	if not boss_defeated:
+		_vfail("boss_defeated 유지 실패"); return
+	print("[VERIFY] TASK_011 runtime not restored PASS (첫 늑대·카운터0·보스처치 유지)")
+
+	# 7) 손상 JSON → 새 게임 + 오류 안내 상태
+	_write_test_save_raw("{ invalid json")
+	if _load_game() or not load_error:
+		_vfail("손상 JSON load=%s err=%s" % [str(false), str(load_error)]); return
+	print("[VERIFY] TASK_011 corrupt save fallback PASS (크래시 없이 새 게임)")
+
+	# 8) 지원하지 않는 버전 → 새 게임
+	_write_test_save_raw('{"version": 999}')
+	if _load_game() or not load_error:
+		_vfail("버전 999 load 처리 실패"); return
+	print("[VERIFY] TASK_011 unsupported version PASS")
+
+	# 9) 잘못된 특성(획득보다 투자 많음) → 거부
+	_write_test_save_raw('{"version":1,"player":{"level":1,"exp":0,"gold":0},"upgrades":{"attack":0,"hp":0,"defense":0},"traits":{"power":1,"combo":1,"counter":1},"progress":{"boss_defeated":false,"bruno_settlement_done":false,"debt_remaining":10000,"debt_paid_total":0,"fame_rank":"무명 용병","fame_advanced":false}}')
+	if _load_game():
+		_vfail("잘못된 특성 저장 수락됨"); return
+	print("[VERIFY] TASK_011 invalid traits rejected PASS")
+
+	# 10) 저장 초기화 (파일 삭제 + 초기 상태 함수)
+	_save_game()                    # 파일 생성
+	if not FileAccess.file_exists(VERIFY_SAVE_PATH):
+		_vfail("초기화 전 저장 파일 없음"); return
+	_reset_save()                   # 검증 모드: 삭제 + _reset_to_new_game
+	if FileAccess.file_exists(VERIFY_SAVE_PATH):
+		_vfail("초기화 후 저장 파일 잔존"); return
+	if level != 1 or gold != 0 or boss_defeated or debt_remaining != STARTING_DEBT:
+		_vfail("초기화 후 상태 lv=%d gold=%d" % [level, gold]); return
+	print("[VERIFY] TASK_011 reset save PASS (파일 삭제·신규 상태)")
+
+	# 테스트 저장 파일 정리 + 진행 중 상태 복원
+	_delete_save_file()
+	_apply_loaded_state(pre)
+	v_save = true
+	print("[VERIFY] task011 저장·불러오기 ALL PASS")
+
+
 func _kill_merc() -> void:
 	merc.state = DEAD
 	merc.body.modulate = Color(0.5, 0.5, 0.5)
@@ -2002,6 +2126,277 @@ func _update_status() -> void:
 	_update_boss_progress()
 
 
+# ── 저장·불러오기 (TASK_011) ─────────────────────────────────────
+func _get_save_path() -> String:
+	return VERIFY_SAVE_PATH if verify_mode else SAVE_PATH
+
+
+# 변경 후 일정 시간 뒤 한 번 저장 (적 처치·레벨업 등 지연 저장)
+func _mark_dirty() -> void:
+	if verify_mode:
+		return
+	if not save_dirty:
+		save_dirty = true
+		autosave_timer = AUTOSAVE_DELAY   # 첫 변경에서만 타이머 시작(무한 미룸 방지)
+
+
+# 강화·특성·정산 등 중요한 변경은 즉시 저장
+func _save_now() -> void:
+	if verify_mode:
+		return
+	_save_game()
+	save_dirty = false
+
+
+func _update_autosave(delta: float) -> void:
+	if verify_mode or not save_dirty:
+		return
+	autosave_timer -= delta
+	if autosave_timer <= 0.0:
+		_save_game()
+		save_dirty = false
+
+
+# 현재 핵심 상태를 JSON 저장용 Dictionary로 반환 (Node·객체는 넣지 않는다)
+func _build_save_dict() -> Dictionary:
+	return {
+		"version": SAVE_VERSION,
+		"player": {"level": level, "exp": exp, "gold": gold},
+		"upgrades": {"attack": attack_upgrade_count, "hp": hp_upgrade_count, "defense": def_upgrade_count},
+		"traits": {"power": power_trait_level, "combo": combo_trait_level, "counter": counter_trait_level},
+		"progress": {
+			"boss_defeated": boss_defeated,
+			"bruno_settlement_done": bruno_settlement_done,
+			"debt_remaining": debt_remaining,
+			"debt_paid_total": debt_paid_total,
+			"fame_rank": fame_rank,
+			"fame_advanced": fame_advanced,
+		},
+	}
+
+
+func _save_game() -> void:
+	var file := FileAccess.open(_get_save_path(), FileAccess.WRITE)
+	if file == null:
+		# 열기 실패해도 게임을 중단하지 않는다 (Web 영구 저장 제한 등)
+		push_warning("저장 파일을 열 수 없습니다: %s" % str(FileAccess.get_open_error()))
+		if not verify_mode:
+			var msg := "브라우저 설정에 따라 저장이 유지되지 않을 수 있습니다.\n비공개 모드는 사용하지 마세요." if OS.has_feature("web") else "저장에 실패했습니다."
+			_show_notice(msg, 1.6)
+		return
+	file.store_string(JSON.stringify(_build_save_dict()))
+	file.flush()
+	file.close()
+
+
+# 저장 파일을 읽고 검증 후 적용한다. 성공하면 true, 없거나 손상이면 false(새 게임).
+func _load_game() -> bool:
+	load_error = false
+	var path := _get_save_path()
+	if not FileAccess.file_exists(path):
+		return false   # 저장 없음 → 안내 없이 새 게임
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		load_error = true
+		return false
+	var text := file.get_as_text()
+	file.close()
+	# 인스턴스 parse()는 실패해도 콘솔에 오류를 찍지 않아 손상 파일 처리에 조용하다
+	var json := JSON.new()
+	var ok_parse := json.parse(text) == OK
+	if not ok_parse or not _validate_save(json.data):
+		load_error = true
+		if not verify_mode:
+			_show_notice("저장 파일을 불러올 수 없습니다.\n새 게임으로 시작합니다.", 1.8)
+		return false
+	_apply_loaded_state(json.data)
+	return true
+
+
+# 손상·미지원·일관성 위반이면 false. 부분 적용 금지를 위해 적용 전에 전부 검증한다.
+func _validate_save(d: Variant) -> bool:
+	if typeof(d) != TYPE_DICTIONARY:
+		return false
+	if not d.has("version") or int(d["version"]) != SAVE_VERSION:
+		return false
+	for k in ["player", "upgrades", "traits", "progress"]:
+		if not d.has(k) or typeof(d[k]) != TYPE_DICTIONARY:
+			return false
+	var p: Dictionary = d["player"]
+	var u: Dictionary = d["upgrades"]
+	var t: Dictionary = d["traits"]
+	var g: Dictionary = d["progress"]
+	var lv := int(p.get("level", 0))
+	if lv < 1 or int(p.get("exp", -1)) < 0 or int(p.get("gold", -1)) < 0:
+		return false
+	if int(u.get("attack", -1)) < 0 or int(u.get("hp", -1)) < 0 or int(u.get("defense", -1)) < 0:
+		return false
+	for tk in ["power", "combo", "counter"]:
+		var tv := int(t.get(tk, -1))
+		if tv != 0 and tv != 1:
+			return false
+	var invested := int(t.get("power", 0)) + int(t.get("combo", 0)) + int(t.get("counter", 0))
+	if invested > lv / 10:
+		return false
+	var debt := int(g.get("debt_remaining", -1))
+	var paid := int(g.get("debt_paid_total", -1))
+	if debt < 0 or debt > STARTING_DEBT or paid < 0 or paid > STARTING_DEBT:
+		return false
+	var fame := str(g.get("fame_rank", ""))
+	if fame != FAME_NAMELESS and fame != FAME_ROOKIE:
+		return false
+	# 진행 일관성: 정상 상태 2종만 인정 (미처치 / 브루노 처치)
+	var bd := bool(g.get("boss_defeated", false))
+	var sd := bool(g.get("bruno_settlement_done", false))
+	var fa := bool(g.get("fame_advanced", false))
+	if bd:
+		if not sd or not fa or fame != FAME_ROOKIE or debt != STARTING_DEBT - BRUNO_DEBT_PAYMENT or paid != BRUNO_DEBT_PAYMENT:
+			return false
+	else:
+		if sd or fa or fame != FAME_NAMELESS or debt != STARTING_DEBT or paid != 0:
+			return false
+	return true
+
+
+# 검증된 저장 데이터를 적용하고 파생 능력치·비용·포인트를 재계산한다.
+func _apply_loaded_state(d: Dictionary) -> void:
+	var p: Dictionary = d["player"]
+	var u: Dictionary = d["upgrades"]
+	var t: Dictionary = d["traits"]
+	var g: Dictionary = d["progress"]
+	level = int(p["level"])
+	exp = int(p["exp"])
+	gold = int(p["gold"])
+	attack_upgrade_count = int(u["attack"])
+	hp_upgrade_count = int(u["hp"])
+	def_upgrade_count = int(u["defense"])
+	power_trait_level = int(t["power"])
+	combo_trait_level = int(t["combo"])
+	counter_trait_level = int(t["counter"])
+	boss_defeated = bool(g["boss_defeated"])
+	bruno_settlement_done = bool(g["bruno_settlement_done"])
+	debt_remaining = int(g["debt_remaining"])
+	debt_paid_total = int(g["debt_paid_total"])
+	fame_rank = str(g["fame_rank"])
+	fame_advanced = bool(g["fame_advanced"])
+	_normalize_exp()
+	_recalc_after_load()
+
+
+# 저장된 경험치가 필요량 이상이면 레벨업 규칙으로 정규화(연출·패널 없이)
+func _normalize_exp() -> void:
+	while exp >= _exp_to_next(level):
+		exp -= _exp_to_next(level)
+		level += 1
+
+
+# 레벨·강화 횟수로 능력치·비용·특성 포인트·런타임 상태를 다시 계산한다.
+func _recalc_after_load() -> void:
+	var levelups := level - START_LEVEL
+	if not merc.is_empty():
+		merc.atk = MERC_ATK + attack_upgrade_count * ATK_UPGRADE_AMOUNT + levelups * LEVEL_ATK_GAIN
+		merc.max_hp = MERC_MAX_HP + hp_upgrade_count * HP_UPGRADE_AMOUNT + levelups * LEVEL_HP_GAIN
+		merc.defense = MERC_DEF + def_upgrade_count * DEF_UPGRADE_AMOUNT
+		merc.hp = merc.max_hp                 # 불러오기 직후 완전 회복
+		merc.state = WALK
+		merc.atk_timer = 0.0
+		_update_hp_bar(merc)
+	atk_upgrade_cost = _cost_after_upgrades(ATK_UPGRADE_BASE_COST, ATK_COST_MULTIPLIER, attack_upgrade_count)
+	hp_upgrade_cost = _cost_after_upgrades(HP_UPGRADE_BASE_COST, HP_COST_MULTIPLIER, hp_upgrade_count)
+	def_upgrade_cost = _cost_after_upgrades(DEF_UPGRADE_BASE_COST, DEF_COST_MULTIPLIER, def_upgrade_count)
+	total_trait_points_earned = level / 10
+	trait_points = total_trait_points_earned - (power_trait_level + combo_trait_level + counter_trait_level)
+	# 런타임 전투 상태는 저장하지 않으므로 항상 첫 늑대부터 시작
+	power_attack_counter = 0
+	counter_hit_counter = 0
+	enemy_seq_index = 0
+	boss_due = false
+	boss_fight_active = false
+	boss_time_left = BOSS_TIME_LIMIT
+	goblin_run_start = -1
+	_update_upgrade_ui()
+	_update_trait_ui()
+	_update_boss_progress()
+	_update_status()
+
+
+# 반복 반올림으로 강화 횟수만큼 진행된 현재 비용을 계산한다.
+func _cost_after_upgrades(base_cost: int, multiplier: float, count: int) -> int:
+	var cost := base_cost
+	for i in range(count):
+		cost = int(round(cost * multiplier))
+	return cost
+
+
+func _delete_save_file() -> void:
+	var path := _get_save_path()
+	if FileAccess.file_exists(path):
+		DirAccess.remove_absolute(path)
+
+
+# 모든 진행을 새 게임 기본값으로 되돌린다 (저장 초기화·검증용)
+func _reset_to_new_game() -> void:
+	level = START_LEVEL
+	exp = 0
+	gold = 0
+	attack_upgrade_count = 0
+	hp_upgrade_count = 0
+	def_upgrade_count = 0
+	power_trait_level = 0
+	combo_trait_level = 0
+	counter_trait_level = 0
+	trait_points = 0
+	total_trait_points_earned = 0
+	power_attack_counter = 0
+	counter_hit_counter = 0
+	boss_defeated = false
+	boss_due = false
+	boss_fight_active = false
+	bruno_settlement_done = false
+	debt_remaining = STARTING_DEBT
+	debt_paid_total = 0
+	fame_rank = FAME_NAMELESS
+	fame_advanced = false
+	atk_upgrade_cost = ATK_UPGRADE_BASE_COST
+	hp_upgrade_cost = HP_UPGRADE_BASE_COST
+	def_upgrade_cost = DEF_UPGRADE_BASE_COST
+	enemy_seq_index = 0
+	goblin_run_start = -1
+	if not merc.is_empty():
+		merc.atk = MERC_ATK
+		merc.max_hp = MERC_MAX_HP
+		merc.hp = MERC_MAX_HP
+		merc.defense = MERC_DEF
+
+
+# 저장 초기화: 파일 삭제 후 씬 재시작(검증 모드는 초기 상태 함수만)
+func _reset_save() -> void:
+	_delete_save_file()
+	if verify_mode:
+		_reset_to_new_game()
+	else:
+		get_tree().reload_current_scene()
+
+
+# 저장 초기화 버튼: 2회 확인 (첫 누름은 3초간 경고 문구)
+func _on_save_reset_pressed() -> void:
+	if reset_confirm_timer > 0.0:
+		reset_confirm_timer = 0.0
+		_reset_save()
+		return
+	reset_confirm_timer = 3.0
+	if save_reset_btn != null:
+		save_reset_btn.text = "다시 누르면 전체 진행 초기화"
+
+
+func _update_reset_confirm(delta: float) -> void:
+	if reset_confirm_timer <= 0.0:
+		return
+	reset_confirm_timer -= delta
+	if reset_confirm_timer <= 0.0 and save_reset_btn != null:
+		save_reset_btn.text = "저장 초기화"
+
+
 # ── 골드 강화: 공격력·체력·방어력 (TASK_002·004) ─────────────────
 func _build_upgrade_ui() -> void:
 	atk_button = _make_upgrade_button(700.0, _on_atk_pressed)
@@ -2055,6 +2450,7 @@ func _do_atk_upgrade() -> void:
 	atk_upgrade_cost = int(round(atk_upgrade_cost * ATK_COST_MULTIPLIER))
 	attack_upgrade_count += 1
 	_update_upgrade_ui()
+	_save_now()
 
 
 func _do_hp_upgrade() -> void:
@@ -2065,6 +2461,7 @@ func _do_hp_upgrade() -> void:
 	hp_upgrade_count += 1
 	_update_hp_bar(merc)
 	_update_upgrade_ui()
+	_save_now()
 
 
 func _do_def_upgrade() -> void:
@@ -2073,6 +2470,7 @@ func _do_def_upgrade() -> void:
 	def_upgrade_cost = int(round(def_upgrade_cost * DEF_COST_MULTIPLIER))
 	def_upgrade_count += 1
 	_update_upgrade_ui()
+	_save_now()
 
 
 # ── 특성 UI (TASK_005) ───────────────────────────────────────────
@@ -2143,6 +2541,15 @@ func _build_trait_panel() -> void:
 	close_btn.pressed.connect(_close_trait_panel)
 	trait_panel.add_child(close_btn)
 
+	# 저장 초기화: 특성만 되돌리는 무료 초기화와 구분되는 전체 진행 초기화(2회 확인)
+	save_reset_btn = Button.new()
+	save_reset_btn.position = Vector2(40, 640)
+	save_reset_btn.size = Vector2(460, 60)
+	save_reset_btn.add_theme_font_size_override("font_size", 24)
+	save_reset_btn.text = "저장 초기화"
+	save_reset_btn.pressed.connect(_on_save_reset_pressed)
+	trait_panel.add_child(save_reset_btn)
+
 
 func _add_trait_desc(text: String, y: float) -> void:
 	var l := Label.new()
@@ -2193,6 +2600,7 @@ func _invest_power() -> void:
 		power_trait_level = 1
 		trait_points -= 1
 		_update_trait_ui()
+		_save_now()
 
 
 func _invest_combo() -> void:
@@ -2200,6 +2608,7 @@ func _invest_combo() -> void:
 		combo_trait_level = 1
 		trait_points -= 1
 		_update_trait_ui()
+		_save_now()
 
 
 func _invest_counter() -> void:
@@ -2207,6 +2616,7 @@ func _invest_counter() -> void:
 		counter_trait_level = 1
 		trait_points -= 1
 		_update_trait_ui()
+		_save_now()
 
 
 func _reset_traits() -> void:
@@ -2218,6 +2628,7 @@ func _reset_traits() -> void:
 	power_attack_counter = 0
 	counter_hit_counter = 0
 	_update_trait_ui()
+	_save_now()
 
 
 func _toggle_trait_panel() -> void:
