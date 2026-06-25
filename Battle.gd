@@ -228,6 +228,7 @@ func _ready() -> void:
 	_build_boss_progress_label()
 	_build_boss_result_panel()
 	_apply_korean_font()
+	_ignore_decorative_mouse()   # 상태·경험치·알림 등 비상호작용 표시가 버튼 터치를 막지 않게
 	_build_merc()
 	# 저장 데이터 불러오기 → UI 갱신 후 첫 적 생성 (검증 모드는 실제 저장을 건드리지 않음)
 	var loaded := false
@@ -345,6 +346,7 @@ func _build_merc() -> void:
 		"atk": MERC_ATK, "defense": MERC_DEF, "interval": MERC_INTERVAL, "atk_timer": 0.0,
 		"state": WALK, "base_x": MERC_X,
 	}
+	_ignore_enemy_mouse(merc)   # 용병 도형·체력 바도 입력 통과
 
 
 # ── 적 ───────────────────────────────────────────────────────────
@@ -465,6 +467,7 @@ func _spawn_boss() -> void:
 	current_enemy_hits = 0
 	counter_hit_counter = 0   # 반격을 보스 강공격(3번째)에 맞춘다
 	power_attack_counter = 0
+	_ignore_enemy_mouse(enemy)   # 보스 도형·철퇴가 버튼 터치를 가로채지 않게
 	_show_boss_ui()
 	_update_boss_ui()
 	_sync_enemy_ui()
@@ -555,7 +558,15 @@ func _build_enemy(typ: String, prof: Dictionary, wave_cur: int, wave_total: int,
 		e["is_winding_up"] = false
 		e["windup_timer"] = 0.0
 		e["club_base_y"] = by - 30
+	_ignore_enemy_mouse(e)   # 적 도형·체력 바가 (특성 패널 등) 버튼 터치를 가로채지 않게
 	return e
+
+
+# 적 딕셔너리의 모든 시각 노드를 입력 통과로 설정 (전투 도형이 버튼을 막지 않게)
+func _ignore_enemy_mouse(e: Dictionary) -> void:
+	for k in ["body", "hp_bg", "hp_fill", "name_label", "shield", "club", "mace"]:
+		if e.has(k):
+			_ignore_mouse(e[k])
 
 
 func _sync_enemy_ui() -> void:
@@ -1017,6 +1028,7 @@ func _show_damage_at(target: Dictionary, dmg: int, label: String, _big: bool) ->
 	lbl.text = ("%s -%d" % [label, dmg]) if label != "" else "-%d" % dmg
 	lbl.add_theme_font_size_override("font_size", fs)
 	lbl.add_theme_color_override("font_color", col)
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE   # 떠오르는 피해 숫자가 버튼 터치를 가로채지 않게
 	if kfont != null:
 		lbl.add_theme_font_override("font", kfont)
 	lbl.position = Vector2(b.position.x - 6, b.position.y - 30)
@@ -1045,6 +1057,7 @@ func _spawn_ghost(unit: Dictionary, color: Color) -> void:
 	g.size = src.size
 	g.position = src.position
 	g.z_index = -1
+	g.mouse_filter = Control.MOUSE_FILTER_IGNORE   # 잔상이 터치를 가로채지 않게
 	add_child(g)
 	var tw := create_tween()
 	tw.tween_property(g, "position:x", g.position.x + 48.0, 0.28)
@@ -2024,6 +2037,15 @@ func _ignore_mouse(node: Node) -> void:
 		(node as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for c in node.get_children():
 		_ignore_mouse(c)
+
+
+# 상단 상태·경험치·알림·배경 등 비상호작용 표시를 입력 통과로 설정(버튼만 입력 받게)
+func _ignore_decorative_mouse() -> void:
+	for n in [status_label, exp_bg, exp_fill, levelup_label, windup_label, notify_label, trait_status_label, boss_progress_label]:
+		if n != null:
+			(n as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for s in bg_stripes:
+		s.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 
 func _build_boss_progress_label() -> void:
