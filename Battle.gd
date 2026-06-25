@@ -55,6 +55,10 @@ const BOSS_POSTURE_WINDOW := 4.0    # 연속 타격 유효 시간(초)
 const BOSS_STAGGER_DURATION := 3.0  # 자세 붕괴 지속(초)
 const POWER_BOSS_BONUS := 1.1       # 강타의 보스 추가 피해 10% (TASK_009 최초 적용)
 
+# ── 빚과 명성 (TASK_010) ─────────────────────────────────────────
+const STARTING_DEBT := 10_000       # 프로토타입 시작 빚
+const BRUNO_DEBT_PAYMENT := 500     # 브루노 처치 시 자동 상환액(보유 골드와 별도)
+
 # ── 성장: 골드와 공격력 강화 (TASK_002) ──────────────────────────
 const GOLD_PER_KILL := 5
 const ATK_UPGRADE_AMOUNT := 2        # 강화 1회당 공격력 증가
@@ -151,6 +155,15 @@ var boss_due := false          # 오우거 처치 후 다음 적이 보스인가
 var boss_fight_active := false # 보스와 실제 전투 중인가 (제한 시간 가동)
 var boss_time_left := BOSS_TIME_LIMIT
 
+# 빚·명성 상태 (TASK_010). 저장 없음 — 재실행 시 초기값으로.
+var debt_remaining := STARTING_DEBT
+var debt_paid_total := 0
+var fame_rank := "무명 용병"
+var fame_advanced := false
+var bruno_settlement_done := false   # 브루노 처치 정산(골드·경험치·빚·명성) 중복 방지
+var last_debt_before := 0            # 결과 화면용: 상환 직전 남은 빚
+var last_payment := 0                # 결과 화면용: 이번 실제 상환액
+
 # 특성 UI
 var trait_button: Button
 var trait_status_label: Label
@@ -170,7 +183,9 @@ var boss_hp_label: Label
 var boss_time_label: Label
 var boss_state_label: Label
 var boss_ui_hp_fill: ColorRect
-var boss_progress_label: Label   # 일반 전투 중 보스까지 진행 표시
+var boss_progress_label: Label   # 상단 한 줄: 빚·명성·보스 진행
+var boss_result_panel: Control   # 보스 처치 결과 패널 (TASK_010)
+var boss_result_label: Label
 
 # 검증 단계 통과 플래그
 var v_task002 := false
@@ -182,6 +197,7 @@ var v_traits := false
 var v_enemies := false
 var v_ogre := false
 var v_boss := false
+var v_debt := false
 var v_phase := 0   # 검증 강화 순서: 0=체력, 1=방어력, 2=공격력
 
 
@@ -197,6 +213,7 @@ func _ready() -> void:
 	_build_windup_label()
 	_build_boss_ui()
 	_build_boss_progress_label()
+	_build_boss_result_panel()
 	_apply_korean_font()
 	_build_merc()
 	_spawn_enemy()
@@ -1026,15 +1043,17 @@ func _kill_enemy() -> void:
 	var was_elite: bool = enemy.get("is_elite", false)
 	var was_boss: bool = enemy.get("is_boss", false)
 	windup_label.visible = false   # 준비 중 처치 시 강공격 취소(문구 정리)
-	gold += enemy.gold_reward       # 보스 보상도 프로필 값(200/100)으로 한 번만 지급
-	exp += enemy.exp_reward
-	_check_level_up()
+	if was_boss:
+		_bruno_settlement()         # 개인 보상(200/100) + 빚 500 상환 + 명성 상승을 한 번만
+	else:
+		gold += enemy.gold_reward
+		exp += enemy.exp_reward
+		_check_level_up()
 	if not verify_mode and was_boss:
-		boss_defeated = true
 		boss_due = false
 		boss_fight_active = false
 		_hide_boss_ui()
-		_show_notice("보스 처치!\n철퇴의 브루노 격파.\n\n첫 지역 클리어!", 2.0)
+		_show_boss_result()         # 개인 보상·빚 상환·명성 상승 결과 패널(약 3.5초)
 	elif not verify_mode and was_elite:
 		_show_notice("엘리트 처치!\n골드 +40   경험치 +30", 1.3)
 	# 사망 연출 후 모든 적 노드 정리
@@ -1067,11 +1086,29 @@ func _kill_enemy() -> void:
 			goblin_run_start = -1        # 무리의 마지막 고블린 처치
 		else:
 			enemy_seq_index += 1
-	respawn_timer = 2.0 if was_boss else RESPAWN_DELAY   # 승리 문구를 보여줄 시간
+	respawn_timer = 3.6 if was_boss else RESPAWN_DELAY   # 결과 패널을 읽을 시간(그동안 적 미생성)
 	_update_upgrade_ui()
 
 	if verify_mode:
 		_verify_step(hits)
+
+
+# 브루노 처치 정산: 개인 보상·빚 자동 상환·명성 상승을 정확히 한 번만 적용
+func _bruno_settlement() -> void:
+	if bruno_settlement_done:
+		return
+	bruno_settlement_done = true
+	boss_defeated = true                # 같은 실행에서 재등장 방지(TASK_009 규칙과 통합)
+	gold += BOSS_GOLD                   # 개인 보상 +200 (보유 골드)
+	exp += BOSS_EXP                     # +100
+	last_debt_before = debt_remaining
+	last_payment = mini(BRUNO_DEBT_PAYMENT, debt_remaining)   # 남은 빚보다 많이 상환하지 않음
+	debt_remaining -= last_payment      # 보유 골드에서는 차감하지 않는다(별도 진행 보상)
+	debt_paid_total += last_payment
+	if not fame_advanced:
+		fame_advanced = true
+		fame_rank = "풋내기 용병"
+	_check_level_up()                   # 경험치 +100으로 레벨업 조건을 넘으면 즉시 처리
 
 
 # 현재 레벨에서 다음 레벨까지 필요한 경험치
@@ -1220,12 +1257,14 @@ func _verify_step(hits: int) -> void:
 		_verify_ogre()
 	if base5 and v_traits and v_enemies and v_ogre and not v_boss:
 		_verify_boss()
+	if base5 and v_traits and v_enemies and v_ogre and v_boss and not v_debt:
+		_verify_debt_fame()
 	# 모든 검증 통과 시 종료 코드 0
-	if base5 and v_traits and v_enemies and v_ogre and v_boss:
-		print("[VERIFY] ALL PASS TASK_001~009 kills=%d lv=%d atk=%d def=%d maxhp=%d" % [kill_count, level, merc.atk, merc.defense, merc.max_hp])
+	if base5 and v_traits and v_enemies and v_ogre and v_boss and v_debt:
+		print("[VERIFY] ALL PASS TASK_001~010 kills=%d lv=%d atk=%d def=%d maxhp=%d" % [kill_count, level, merc.atk, merc.defense, merc.max_hp])
 		get_tree().quit(0)
 	if kill_count >= 120:
-		_vfail("incomplete dmg=%s hp=%s def=%s t002=%s t003=%s traits=%s enemies=%s ogre=%s boss=%s kills=%d" % [str(v_damage), str(v_hp), str(v_def), str(v_task002), str(v_task003), str(v_traits), str(v_enemies), str(v_ogre), str(v_boss), kill_count])
+		_vfail("incomplete dmg=%s hp=%s def=%s t002=%s t003=%s traits=%s enemies=%s ogre=%s boss=%s debt=%s kills=%d" % [str(v_damage), str(v_hp), str(v_def), str(v_task002), str(v_task003), str(v_traits), str(v_enemies), str(v_ogre), str(v_boss), str(v_debt), kill_count])
 
 
 # ── TASK_005 특성 검증 (확률 비의존, 강제 발동 경로) ─────────────
@@ -1568,6 +1607,78 @@ func _posture_tick(d: Dictionary, delta: float) -> void:
 			d.posture_hits = 0
 
 
+# ── TASK_010 빚·명성 정산 검증 (결정적) ─────────────────────────
+func _verify_debt_fame() -> void:
+	# 1) 초기 상태 (보스 미처치 — 검증 중 보스는 스폰되지 않으므로 현재값이 초기값)
+	if debt_remaining != STARTING_DEBT or debt_paid_total != 0 or fame_rank != "무명 용병" or fame_advanced or bruno_settlement_done:
+		_vfail("초기 debt=%d paid=%d fame=%s adv=%s done=%s" % [debt_remaining, debt_paid_total, fame_rank, str(fame_advanced), str(bruno_settlement_done)]); return
+	if STARTING_DEBT != 10000 or BRUNO_DEBT_PAYMENT != 500:
+		_vfail("상수 debt=%d pay=%d" % [STARTING_DEBT, BRUNO_DEBT_PAYMENT]); return
+	if _format_debt(10000) != "10,000" or _format_debt(9500) != "9,500" or _format_debt(0) != "0" or _format_debt(300) != "300":
+		_vfail("천단위 %s/%s/%s/%s" % [_format_debt(10000), _format_debt(9500), _format_debt(0), _format_debt(300)]); return
+	print("[VERIFY] TASK_010 initial debt fame PASS (빚 10,000, 무명 용병, 정산 미완료)")
+
+	# 정산이 건드리는 모든 상태 스냅샷 후 복원
+	var s_gold := gold; var s_exp := exp; var s_level := level
+	var s_atk: int = merc.atk; var s_maxhp: int = merc.max_hp; var s_hp: int = merc.hp
+	var s_pts := trait_points; var s_earned := total_trait_points_earned
+	var s_debt := debt_remaining; var s_paid := debt_paid_total
+	var s_fame := fame_rank; var s_fadv := fame_advanced; var s_done := bruno_settlement_done
+	var s_bdef := boss_defeated
+
+	# 2) 패배 복귀 경로는 빚·명성·정산을 건드리지 않는다
+	_boss_return_to_hunt()
+	if debt_remaining != STARTING_DEBT or debt_paid_total != 0 or fame_rank != "무명 용병" or bruno_settlement_done:
+		_vfail("복귀 후 debt=%d fame=%s done=%s" % [debt_remaining, fame_rank, str(bruno_settlement_done)]); return
+	print("[VERIFY] TASK_010 defeat no settlement PASS (복귀에 빚·명성·정산 불변)")
+
+	# 3) 정상 정산 + 골드 비차감 (레벨업 간섭 없도록 level 높게)
+	level = 20; exp = 0; gold = 100
+	debt_remaining = STARTING_DEBT; debt_paid_total = 0
+	fame_rank = "무명 용병"; fame_advanced = false; bruno_settlement_done = false; boss_defeated = false
+	_bruno_settlement()
+	if gold != 300:
+		_vfail("골드 비차감 gold=%d (기대 300)" % gold); return
+	if exp != 100:
+		_vfail("경험치 exp=%d (기대 100)" % exp); return
+	if debt_remaining != 9500 or debt_paid_total != 500:
+		_vfail("상환 남은=%d 누적=%d" % [debt_remaining, debt_paid_total]); return
+	if fame_rank != "풋내기 용병" or not fame_advanced or not bruno_settlement_done:
+		_vfail("명성 fame=%s adv=%s done=%s" % [fame_rank, str(fame_advanced), str(bruno_settlement_done)]); return
+	print("[VERIFY] TASK_010 boss settlement PASS (골드 100→300, 빚 10,000→9,500, 무명→풋내기)")
+	print("[VERIFY] TASK_010 gold not deducted PASS (상환 후에도 골드 300)")
+
+	# 4) 메인 UI 텍스트 갱신
+	_update_boss_progress()
+	if not boss_progress_label.text.begins_with("빚 9,500   명성 풋내기 용병"):
+		_vfail("UI 텍스트 %s" % boss_progress_label.text); return
+	print("[VERIFY] TASK_010 ui text PASS (%s)" % boss_progress_label.text)
+
+	# 5) 중복 정산 방지
+	_bruno_settlement()
+	if gold != 300 or exp != 100 or debt_remaining != 9500 or debt_paid_total != 500 or fame_rank != "풋내기 용병":
+		_vfail("중복 gold=%d exp=%d 남은=%d 누적=%d fame=%s" % [gold, exp, debt_remaining, debt_paid_total, fame_rank]); return
+	print("[VERIFY] TASK_010 duplicate guard PASS (재호출에도 1회분 유지)")
+
+	# 6) 빚 0 하한 (빚 300에 500 상환 → 실제 300, 남은 0)
+	debt_remaining = 300; debt_paid_total = 0; bruno_settlement_done = false; exp = 0
+	_bruno_settlement()
+	if debt_remaining != 0 or debt_paid_total != 300:
+		_vfail("하한 남은=%d 누적=%d (기대 0/300)" % [debt_remaining, debt_paid_total]); return
+	print("[VERIFY] TASK_010 debt floor PASS (빚 300+500상환 → 실제 300, 남은 0)")
+
+	# 상태 복원
+	gold = s_gold; exp = s_exp; level = s_level
+	merc.atk = s_atk; merc.max_hp = s_maxhp; merc.hp = s_hp
+	trait_points = s_pts; total_trait_points_earned = s_earned
+	debt_remaining = s_debt; debt_paid_total = s_paid
+	fame_rank = s_fame; fame_advanced = s_fadv; bruno_settlement_done = s_done
+	boss_defeated = s_bdef
+	_update_boss_progress()
+	v_debt = true
+	print("[VERIFY] task010 빚·명성 ALL PASS")
+
+
 func _kill_merc() -> void:
 	merc.state = DEAD
 	merc.body.modulate = Color(0.5, 0.5, 0.5)
@@ -1688,7 +1799,7 @@ func _apply_font_recursive(node: Node) -> void:
 
 func _build_status_label() -> void:
 	status_label = Label.new()
-	status_label.position = Vector2(16, 20)
+	status_label.position = Vector2(16, 12)
 	status_label.add_theme_font_size_override("font_size", 22)
 	add_child(status_label)
 
@@ -1782,11 +1893,64 @@ func _build_boss_ui() -> void:
 
 
 func _build_boss_progress_label() -> void:
+	# 상단 한 줄로 빚·명성·보스 진행을 함께 표시(기존 상태 두 줄 아래, 경험치 바 위).
 	boss_progress_label = Label.new()
-	boss_progress_label.position = Vector2(16, 66)
+	boss_progress_label.position = Vector2(16, 68)
 	boss_progress_label.add_theme_font_size_override("font_size", 18)
-	boss_progress_label.add_theme_color_override("font_color", Color(1.0, 0.8, 0.6))
+	boss_progress_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.55))
 	add_child(boss_progress_label)
+
+
+func _build_boss_result_panel() -> void:
+	# 보스 처치 결과 패널: 개인 보상·빚 상환·명성 상승을 약 3.5초 표시(버튼 없음).
+	boss_result_panel = Control.new()
+	boss_result_panel.position = Vector2.ZERO
+	boss_result_panel.size = SCREEN
+	boss_result_panel.z_index = 60
+	boss_result_panel.visible = false
+	add_child(boss_result_panel)
+
+	var bg := ColorRect.new()
+	bg.color = Color(0.05, 0.04, 0.09, 0.96)
+	bg.size = SCREEN
+	boss_result_panel.add_child(bg)
+
+	boss_result_label = Label.new()
+	boss_result_label.position = Vector2(40, 150)
+	boss_result_label.size = Vector2(SCREEN.x - 80, 660)
+	boss_result_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	boss_result_label.add_theme_font_size_override("font_size", 28)
+	boss_result_label.add_theme_color_override("font_color", Color(1.0, 0.95, 0.8))
+	boss_result_panel.add_child(boss_result_label)
+
+
+# 천 단위 구분 기호로 빚을 표기 (10000 → "10,000")
+func _format_debt(n: int) -> String:
+	var s := str(absi(n))
+	var out := ""
+	var c := 0
+	for i in range(s.length() - 1, -1, -1):
+		out = s[i] + out
+		c += 1
+		if c % 3 == 0 and i > 0:
+			out = "," + out
+	return ("-" if n < 0 else "") + out
+
+
+func _show_boss_result() -> void:
+	boss_result_label.text = "보스 처치!\n철퇴의 브루노 격파.\n\n개인 보상\n골드 +%d   경험치 +%d\n\n빚 자동 상환\n%d골드\n남은 빚 %s → %s\n\n명성 상승\n무명 용병 → %s\n\n첫 지역 클리어!\n\n다음 모험은 아직 준비 중입니다." % [BOSS_GOLD, BOSS_EXP, last_payment, _format_debt(last_debt_before), _format_debt(debt_remaining), fame_rank]
+	boss_result_panel.visible = true
+	boss_result_panel.modulate = Color(1, 1, 1, 1)
+	# 명성 강조: 결과 문구가 살짝 커졌다 제자리로
+	boss_result_label.scale = Vector2(0.94, 0.94)
+	boss_result_label.pivot_offset = boss_result_label.size * 0.5
+	var ts := create_tween()
+	ts.tween_property(boss_result_label, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	# 약 3.5초 후 자동으로 닫힘(버튼 없음)
+	var tw := create_tween()
+	tw.tween_interval(3.2)
+	tw.tween_property(boss_result_panel, "modulate:a", 0.0, 0.5)
+	tw.tween_callback(func() -> void: boss_result_panel.visible = false)
 
 
 func _show_boss_ui() -> void:
@@ -1809,20 +1973,20 @@ func _update_boss_ui() -> void:
 	boss_state_label.text = "상태: " + _boss_state_text()
 
 
-# 일반 전투 중 보스까지 진행 상황을 짧게 표시
+# 상단 한 줄: 빚·명성과 보스까지 진행 상황을 함께 표시
 func _update_boss_progress() -> void:
 	if boss_progress_label == null:
 		return
-	var t := ""
+	var prog := ""
 	if boss_defeated:
-		t = "첫 지역 완료"
+		prog = "첫 지역 완료"
 	elif boss_fight_active:
-		t = "보스 전투"
+		prog = "보스 전투"
 	elif boss_due:
-		t = "보스 등장 예정"
+		prog = "보스 등장 예정"
 	else:
-		t = "보스까지 %d / 8" % (enemy_seq_index % ENEMY_SEQUENCE.size())
-	boss_progress_label.text = t
+		prog = "보스까지 %d / 8" % (enemy_seq_index % ENEMY_SEQUENCE.size())
+	boss_progress_label.text = "빚 %s   명성 %s   ·   %s" % [_format_debt(debt_remaining), fame_rank, prog]
 
 
 func _update_status() -> void:
