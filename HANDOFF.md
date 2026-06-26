@@ -16,7 +16,7 @@
 - 작업지시서 **정본은 GitHub Issue**(Issue 하나=주제 하나). 본문=지시, 댓글=결과·판단·수정. 완료 시 Issue 닫기.
 - 로컬은 `CURRENT_TASK.md` **하나만** 두고 새 작업마다 덮어쓴다. 맨 위에 Issue 번호·상태·정본 표시.
 - Issue 충돌 시 GitHub Issue 우선. 완료된 `docs/archive/prototype-v0.1/tasks/`의 TASK 001~012는 현재 지시 아님.
-- GPT가 Issue HTML 댓글을 못 읽으면 평문 JSON API URL을 준다: `https://api.github.com/repos/BN8624/unknown/issues/<번호>/comments` (본문은 `.../issues/<번호>`).
+- GPT가 Issue HTML을 못 읽으면 평문 JSON/raw URL을 준다(상세는 CLAUDE.md): 본문 `.../issues/<N>`, 댓글 전체 `.../issues/<N>/comments`, **특정 댓글 `https://api.github.com/repos/BN8624/unknown/issues/comments/<CID>`**, raw 파일 `https://raw.githubusercontent.com/BN8624/unknown/main/<경로>`. GPT가 "댓글 N개뿐"이라면 이슈 번호부터 확인.
 - 규칙 정본은 `CLAUDE.md` "작업 흐름". 문서 역할: `UNKNOWN.md`=기획 정본 / `HANDOFF.md`=현재 상태 / `CURRENT_TASK.md`=실행할 작업 하나 / `VERTICAL_SLICE.md`=슬라이스 단계 정본 / `checklist.md`=큰 단계만 / `context-notes.md`=결정 이유·버그 원인.
 
 ## 지금까지 완료 (요약)
