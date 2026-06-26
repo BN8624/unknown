@@ -1,12 +1,12 @@
 # CURRENT TASK
 
-- Task: TASK 013 — 버티컬 슬라이스 범위 확정
-- GitHub Issue: #1 — https://github.com/BN8624/unknown/issues/1
-- 상태: 범위 설계 중 (분석·추천안 작성 → 사용자 승인 대기)
-- 정본: GitHub Issue 본문과 댓글
+- Task: 없음 (TASK 013 종료)
+- GitHub Issue: 다음 작업 TASK 014는 새 Issue로 시작 예정
+- 상태: 대기 중
+- 정본: 현재 열린 GitHub Issue (없으면 VERTICAL_SLICE.md + HANDOFF.md)
 
 ---
 
-이번 작업은 신규 구현이 아니라 버티컬 슬라이스 범위·실행 순서를 확정하는 설계 작업이다.
-사용자 승인 전에는 아트 제작·UI 개편·사운드·오프라인 보상 구현을 시작하지 않는다.
-승인되면 VERTICAL_SLICE.md(단계 정본 계획)를 생성한다.
+TASK 013(버티컬 슬라이스 범위 확정, Issue #1) 종료·승인 완료. 정본 계획은 `VERTICAL_SLICE.md`.
+
+다음은 **TASK 014 — 코드 경계 정리(데이터 분리 + 사운드 훅, 동작 0)**. 새 GitHub Issue가 열리면 이 파일을 그 Issue 내용으로 덮어쓴다. 실제 코드 변경은 TASK 014 Issue에서 시작한다.

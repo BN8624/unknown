@@ -24,6 +24,7 @@ TASK 013부터는 매번 새 Markdown 작업지시서 파일을 만들지 않는
 * Issue 확인은 가능하면 `gh issue view <번호> --comments`로 읽는다. GitHub CLI 접근이 불안정하면 사용자가 Issue 본문을 `CURRENT_TASK.md`에 붙여 둔 내용을 본다.
 * **Issue 본문/댓글과 `CURRENT_TASK.md` 내용이 다르면 GitHub Issue를 우선한다.**
 * `docs/archive/`의 과거 TASK 파일은 보관용 이력이다. **현재 지시로 사용하지 않는다.**
+* GPT가 Issue HTML 페이지의 댓글을 못 읽으면, 평문 JSON API URL을 준다. 댓글 `https://api.github.com/repos/BN8624/unknown/issues/<번호>/comments`, 본문 `https://api.github.com/repos/BN8624/unknown/issues/<번호>`.
 
 ## 문서 우선순위
 
