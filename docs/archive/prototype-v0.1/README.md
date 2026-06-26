@@ -2,9 +2,14 @@
 
 이 폴더는 프로토타입 v0.1 제작 당시 완료된 작업지시서 보관소다.
 
-현재 작업 기준은 루트의 `UNKNOWN.md`, `HANDOFF.md`, `CURRENT_TASK.md`를 따른다.
+현재 작업 기준은 다음 문서를 따른다.
 
-보관된 TASK 파일은 현재 지시로 사용하지 않는다.
+- UNKNOWN.md
+- HANDOFF.md
+- CURRENT_TASK.md
+- 현재 열려 있는 GitHub Issue
+
+보관된 TASK 파일은 현재 작업지시로 사용하지 않는다.
 
 ---
 
