@@ -6,7 +6,7 @@
 
 프로토타입 v0.1 승인 완료. 지금은 **버티컬 슬라이스** 단계 — 검증된 첫 지역 흐름을 그대로 두고 "실제 게임처럼 보이고 들리는 작은 완성품"으로 만든다. 정본 계획은 `VERTICAL_SLICE.md`.
 
-다음은 **TASK 014 — 코드 경계 정리(동작 0)**. 새 GitHub Issue로 시작한다.
+**TASK 014(Issue #2) 완료·종료.** 적 5종 프로필을 `scripts/data/EnemyProfiles.gd`로, 사운드 경계를 `scripts/audio/AudioHooks.gd`로 분리(동작 변화 0, 실제 음원 없음). 헤드리스 ALL PASS TASK_001~014, 아이폰 확인 완료("잘 되네"). 다음은 **TASK 015 — 첫 컷아웃 아트 샘플(용병·늑대·변경 교역로 배경)**, 새 Issue로 시작.
 
 확정 방향(Issue #1 승인): 2D 컷아웃(AI 생성 투명 분리 파츠) / 첫 지역 = 황량한 변경 교역로 / 외형 성장 포함(브루노 처치 후 철검+가죽) / 오프라인 보상 제외(슬라이스 후 별도 Issue) / 코드는 데이터 분리+사운드 훅만(대규모 리팩터링 금지).
 
@@ -26,13 +26,14 @@
 
 ## 다음 액션
 
-> **TASK 014 — 코드 경계 정리(동작 변화 0).** 새 GitHub Issue로 시작.
-> 1) 적·보스 프로필/밸런스 상수를 `game_data.gd`로 분리(preload, 값 불변). 2) 빈 `_play_sfx(name)` 호출 훅 추가(소리는 TASK 019). 유닛 외형 생성 경계는 이미 `_build_merc`/`_build_enemy`/`_spawn_boss`에 있음.
-> 대규모 리팩터링·Autoload 금지. 완료 기준: `--verify` TASK_001~011 ALL PASS 유지 + 라이브 동일.
+> **TASK 015 — 용병·늑대·변경 교역로 배경의 첫 컷아웃 아트 샘플**을 새 GitHub Issue로 시작.
+> 컷아웃 리깅용 투명 배경 분리 파츠로 용병·늑대·변경 교역로 배경 먼저 제작 → 아이폰 승인 → 나머지 적으로 확장(승인 흐름은 VERTICAL_SLICE.md). 외형 적용 시 기존 트랜스폼 트윈(대기·전진·공격·피격) 재사용.
+> 참고: 실제 음원·`AudioStreamPlayer`는 아직 없음(`AudioHooks`는 호출 경계만). 소리는 TASK 019.
 
 ## 코드 현황 (TASK 014~ 참고)
 
-- 전부 단일 `Battle.gd`(약 2,700줄, 함수 약 137개, 헤드리스 검증 함수 7개). 씬 `Battle.tscn`은 스크립트만 단 빈 `Node2D`. 모든 표시물은 `ColorRect`/`Label`을 코드로 생성.
+- 대부분 `Battle.gd`(전투·UI·보스·저장·검증). TASK_014에서 데이터·사운드 경계만 분리: `scripts/data/EnemyProfiles.gd`(적 5종 고정 프로필 + `get_profile()` 복사본), `scripts/audio/AudioHooks.gd`(19개 사운드 이벤트 호출 경계, 실제 음원 없음). 둘 다 `Battle.gd` 상단에서 `preload`. 씬 `Battle.tscn`은 스크립트만 단 빈 `Node2D`. 모든 표시물은 `ColorRect`/`Label`을 코드로 생성.
+- 보스 스탯은 `EnemyProfiles.PROFILES["bruno"]`가 단일 출처(`BOSS_*` const가 거기서 파생). `ENEMY_PROFILES`는 읽기용 별칭, 전투 생성만 `get_profile()` 복사본 사용.
 - 입력 원칙(UI/표시 건드릴 때 주의): 비상호작용 표시물은 `MOUSE_FILTER_IGNORE`, 버튼·특성 패널만 STOP. Godot Control 입력은 z_index가 아니라 트리 순서를 따르므로 전투 중 생성되는 표시물이 버튼을 가리지 않게 IGNORE 유지(`_ignore_mouse`/`_ignore_enemy_mouse`/`_ignore_decorative_mouse`).
 - 저장: `user://save_v1.json`(검증은 `user://save_test_v1.json`만). 헤드리스 `--verify`는 실제 저장 비접근.
 
@@ -59,8 +60,8 @@
 
 ## 검증 상태
 
-- 헤드리스 `--verify`: **TASK_001~011 ALL PASS**, 종료 0, 경고·오류 0. 무작위 비의존(연격만 force 경로, 나머지 결정적). 검증 저장이 실제 저장 비접근·테스트 파일 미잔존.
-- 아이폰 플레이: **TASK_001~012 전부 확인됨**(전체 흐름·저장 지속성·입력 수정 포함, v0.1 승인).
+- 헤드리스 `--verify`: **TASK_001~014 ALL PASS**, 종료 0. 무작위 비의존(연격만 force 경로, 나머지 결정적). 검증 저장이 실제 저장 비접근·테스트 파일 미잔존. (TASK_014 검증이 잘못된 id/이벤트 안전장치를 일부러 호출해 의도된 `push_warning` 2건 — 라이브엔 없음.)
+- 아이폰 플레이: **TASK_001~012(v0.1) + TASK_014 확인됨**. TASK_014는 분리 후 기존 저장 복원·전투 동일 작동 확인("잘 되네").
 - 항목별 검증 상세는 git 히스토리/`context-notes.md` 참고.
 
 ## 남은 위험

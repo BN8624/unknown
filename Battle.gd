@@ -18,14 +18,16 @@ const COMBAT_RANGE := 150.0           # 이 거리 안이면 전투 시작
 const RESPAWN_DELAY := 0.4            # 적 처치 후 다음 적까지 대기(초) — 단축
 const MERC_DEATH_DELAY := 1.0        # 용병 사망 후 재시작 대기(초)
 
+# ── 적·보스 고정 프로필과 사운드 훅 분리 (TASK_014) ──────────────
+# 적 5종(일반·엘리트·보스)의 고정값은 scripts/data/EnemyProfiles.gd로 분리.
+# 사운드 이벤트 경계는 scripts/audio/AudioHooks.gd로 분리(아직 실제 음원 없음).
+const EnemyProfiles := preload("res://scripts/data/EnemyProfiles.gd")
+const AudioHooks := preload("res://scripts/audio/AudioHooks.gd")
+
 # ── 일반 적 3종과 순환 (TASK_006) ────────────────────────────────
 # 검증 모드는 위의 기준 적(ENEMY_*)만 쓰고, 일반 플레이만 아래 프로필로 순환한다.
-const ENEMY_PROFILES := {
-	"wolf": {"name": "굶주린 늑대", "max_hp": 32, "atk": 5, "defense": 0, "interval": 0.75, "approach_speed": 230.0, "gold": 5, "exp": 5},
-	"goblin": {"name": "고블린", "max_hp": 22, "atk": 4, "defense": 0, "interval": 1.0, "approach_speed": 200.0, "gold": 4, "exp": 4},
-	"shield": {"name": "방패병", "max_hp": 75, "atk": 8, "defense": 5, "interval": 1.5, "approach_speed": 130.0, "gold": 12, "exp": 10},
-	"ogre": {"name": "오우거 징수꾼", "max_hp": 240, "atk": 16, "defense": 3, "interval": 2.0, "approach_speed": 100.0, "gold": 40, "exp": 30},
-}
+# 읽기용 별칭(검증·조회). 전투 생성 경로는 EnemyProfiles.get_profile()로 복사본을 받는다.
+const ENEMY_PROFILES := EnemyProfiles.PROFILES
 const ENEMY_SEQUENCE := ["wolf", "wolf", "wolf", "goblin", "goblin", "goblin", "shield", "ogre"]
 const GOBLIN_SPACING := 82.0        # 무리 고블린 사이 가로 간격(겹치지 않게)
 
@@ -35,15 +37,16 @@ const OGRE_HEAVY_EVERY := 3        # 3번째 공격이 강공격
 const OGRE_WINDUP_TIME := 1.0      # 강공격 준비 동작 시간(초)
 
 # ── 보스: 철퇴의 브루노 (TASK_009) ───────────────────────────────
-const BOSS_MAX_HP := 850
-const BOSS_ATK := 15
-const BOSS_BASE_DEF := 6            # 일반 상태 방어력
+# 보스 고정 스탯은 EnemyProfiles의 "bruno" 프로필이 단일 출처(값 동일, 중복 정의 제거).
+const BOSS_MAX_HP := int(EnemyProfiles.PROFILES["bruno"]["max_hp"])
+const BOSS_ATK := int(EnemyProfiles.PROFILES["bruno"]["atk"])
+const BOSS_BASE_DEF := int(EnemyProfiles.PROFILES["bruno"]["defense"])   # 일반 상태 방어력
 const BOSS_STANCE_DEF := 9          # 방어 태세 round(6×1.5)
 const BOSS_STAGGER_DEF := 4         # 자세 붕괴 round(6×0.6)
-const BOSS_EXP := 100
-const BOSS_GOLD := 200
-const BOSS_INTERVAL := 2.0          # 기본 공격 간격(초)
-const BOSS_APPROACH_SPEED := 95.0
+const BOSS_EXP := int(EnemyProfiles.PROFILES["bruno"]["exp"])
+const BOSS_GOLD := int(EnemyProfiles.PROFILES["bruno"]["gold"])
+const BOSS_INTERVAL := float(EnemyProfiles.PROFILES["bruno"]["interval"])   # 기본 공격 간격(초)
+const BOSS_APPROACH_SPEED := float(EnemyProfiles.PROFILES["bruno"]["approach_speed"])
 const BOSS_TIME_LIMIT := 45.0       # 보스 전투 제한 시간(초)
 const BOSS_HEAVY_MULT := 2.3        # 강한 내려찍기(3번째) 배율
 const BOSS_HEAVY_EVERY := 3
@@ -211,6 +214,7 @@ var v_ogre := false
 var v_boss := false
 var v_debt := false
 var v_save := false
+var v_task014 := false   # 프로필 분리·사운드 훅 경계 검증(TASK_014)
 var v_phase := 0   # 검증 강화 순서: 0=체력, 1=방어력, 2=공격력
 
 
@@ -353,7 +357,7 @@ func _build_merc() -> void:
 func _spawn_enemy() -> void:
 	# 검증 모드는 기준 적(기존 ENEMY_*, 보상 5/5)만 생성해 TASK_002~005 검증을 보존한다.
 	if verify_mode:
-		var vprof := {"name": "검증적", "max_hp": ENEMY_MAX_HP, "atk": ENEMY_ATK, "defense": ENEMY_DEF, "interval": ENEMY_INTERVAL, "approach_speed": ENEMY_APPROACH_SPEED, "gold": GOLD_PER_KILL, "exp": EXP_PER_KILL}
+		var vprof := {"name": "검증적", "max_hp": ENEMY_MAX_HP, "atk": ENEMY_ATK, "defense": ENEMY_DEF, "interval": ENEMY_INTERVAL, "approach_speed": ENEMY_APPROACH_SPEED, "gold": GOLD_PER_KILL, "exp": EXP_PER_KILL, "size": Vector2(54, 74), "color": Color(0.90, 0.40, 0.35)}
 		enemy = _build_enemy("verify", vprof, 0, 0, ENEMY_SPAWN_X, true)
 		current_enemy_hits = 0
 		_sync_enemy_ui()
@@ -368,10 +372,11 @@ func _spawn_enemy() -> void:
 	if typ == "goblin":
 		_spawn_goblin_wave(enemy_seq_index % ENEMY_SEQUENCE.size())
 		return
-	enemy = _build_enemy(typ, ENEMY_PROFILES[typ], 0, 0, ENEMY_SPAWN_X, true)
+	enemy = _build_enemy(typ, EnemyProfiles.get_profile(typ), 0, 0, ENEMY_SPAWN_X, true)
 	current_enemy_hits = 0
 	_sync_enemy_ui()
 	if typ == "ogre":
+		AudioHooks.play("elite_appear")
 		counter_hit_counter = 0   # 반격을 오우거 강공격(3번째)에 맞춘다
 		_show_notice("엘리트 등장!\n[엘리트] 오우거 징수꾼", 1.1)
 
@@ -380,7 +385,7 @@ func _spawn_enemy() -> void:
 func _spawn_goblin_wave(start_idx: int) -> void:
 	goblin_run_start = start_idx
 	var total: int = _goblin_wave_info(start_idx).y
-	var prof: Dictionary = ENEMY_PROFILES["goblin"]
+	var prof: Dictionary = EnemyProfiles.get_profile("goblin")
 	var built: Array = []
 	for i in range(total):
 		var g := _build_enemy("goblin", prof, i + 1, total, ENEMY_SPAWN_X + i * GOBLIN_SPACING, i == 0)
@@ -396,9 +401,11 @@ func _spawn_goblin_wave(start_idx: int) -> void:
 
 # 보스(철퇴의 브루노) 생성: 일반 적·엘리트와 외형·UI로 구분되는 최종 보스
 func _spawn_boss() -> void:
+	AudioHooks.play("boss_appear")
 	_show_notice("보스 등장!\n철퇴의 브루노", 1.3)
-	var bsize := Vector2(132, 156)            # 오우거(108×132)보다 크고 넓은 실루엣
-	var bcolor := Color(0.50, 0.12, 0.30)     # 짙은 자주/적색
+	var prof := EnemyProfiles.get_profile("bruno")
+	var bsize: Vector2 = prof.size            # 오우거(108×132)보다 크고 넓은 실루엣
+	var bcolor: Color = prof.color            # 짙은 자주/적색
 	var by: float = (GROUND_Y + 90) - bsize.y
 	var sx := ENEMY_SPAWN_X
 	var bar_w := bsize.x
@@ -457,7 +464,7 @@ func _spawn_boss() -> void:
 		"approach_speed": BOSS_APPROACH_SPEED,
 		"gold_reward": BOSS_GOLD, "exp_reward": BOSS_EXP,
 		"atk_timer": 0.0, "state": WALK,
-		"is_boss": true, "attack_count": 0,
+		"is_boss": prof.is_boss, "attack_count": 0,
 		"is_winding_up": false, "windup_timer": 0.0,
 		"defense_stance": false, "stance_timer": 0.0, "stance_cooldown": BOSS_STANCE_CYCLE,
 		"staggered": false, "stagger_timer": 0.0,
@@ -480,17 +487,9 @@ func _should_set_boss_due(killed_type: String) -> bool:
 
 # 적 한 마리를 노드와 함께 만들어 반환한다 (active=true면 이름표 표시)
 func _build_enemy(typ: String, prof: Dictionary, wave_cur: int, wave_total: int, sx: float, active: bool) -> Dictionary:
-	var bsize := Vector2(54, 74)
-	var bcolor := Color(0.90, 0.40, 0.35)
-	match typ:
-		"wolf":
-			bsize = Vector2(78, 44); bcolor = Color(0.64, 0.34, 0.24)
-		"goblin":
-			bsize = Vector2(42, 64); bcolor = Color(0.32, 0.72, 0.34)
-		"shield":
-			bsize = Vector2(66, 96); bcolor = Color(0.52, 0.57, 0.64)
-		"ogre":
-			bsize = Vector2(108, 132); bcolor = Color(0.72, 0.42, 0.20)   # 가장 크고 무겁게
+	# 표시 크기·색상은 프로필 고정값 사용(하드코딩 제거, 단일 출처).
+	var bsize: Vector2 = prof.size
+	var bcolor: Color = prof.color
 	var by: float = (GROUND_Y + 90) - bsize.y
 	var bar_w: float = bsize.x
 
@@ -553,7 +552,7 @@ func _build_enemy(typ: String, prof: Dictionary, wave_cur: int, wave_total: int,
 		club.position = Vector2(sx - 14, by - 30)
 		add_child(club)
 		e["club"] = club
-		e["is_elite"] = true
+		e["is_elite"] = prof.is_elite
 		e["attack_count"] = 0
 		e["is_winding_up"] = false
 		e["windup_timer"] = 0.0
@@ -722,15 +721,18 @@ func _merc_basic_attack() -> void:
 	var is_boss: bool = enemy.get("is_boss", false)
 	var is_power: bool = power_trait_level > 0 and _consume_power_attack()
 	if is_power:
+		AudioHooks.play("trait_heavy_strike")
 		_lunge(merc, 46.0)
 		_enemy_pushback()
 		var pdmg: int = _power_damage_boss(merc.atk, edef) if is_boss else _power_damage(merc.atk, edef)
 		_deal_to_enemy(pdmg, "강타", true)
 		return
+	AudioHooks.play("merc_basic_attack")
 	_lunge(merc)
 	_deal_to_enemy(_damage(merc.atk, edef), "", false)
 	if _combo_would_trigger(not enemy.is_empty() and enemy.hp > 0):
 		# 연격: 빠른 추가 전진 + 청록 잔상·발광으로 "한 번 더 벴다"가 보이게
+		AudioHooks.play("trait_flurry")
 		_lunge(merc, 34.0)
 		_tint(merc, Color(0.5, 1.5, 1.7), 0.22)
 		_spawn_ghost(merc, Color(0.4, 0.95, 1.0, 0.55))
@@ -743,11 +745,13 @@ func _enemy_attack_merc() -> void:
 
 # 적의 한 번 공격을 용병에게 적용 (반격 연동 포함). is_heavy=오우거 강공격.
 func _apply_enemy_hit(base: int, is_heavy: bool) -> void:
+	AudioHooks.play("enemy_basic_attack")
 	var did_counter: bool = counter_trait_level > 0 and _consume_counter()
 	var taken := _counter_reduced(base) if did_counter else base
 	merc.hp = max(0, merc.hp - taken)
 	_update_hp_bar(merc)
 	_lunge(enemy)
+	AudioHooks.play("trait_counter_block" if did_counter else "merc_hit")
 	if did_counter:
 		_tint(merc, Color(0.5, 0.8, 1.7), 0.22)   # 방어: 파랗게 번쩍
 	elif is_heavy:
@@ -762,6 +766,7 @@ func _apply_enemy_hit(base: int, is_heavy: bool) -> void:
 	_show_damage_at(merc, taken, merc_label, is_heavy)
 	# 감소된 피해로도 살아 있으면 즉시 반격
 	if did_counter and merc.hp > 0 and not enemy.is_empty():
+		AudioHooks.play("trait_counter_attack")
 		var cd := _counter_damage(merc.atk, _enemy_def())
 		enemy.hp = max(0, enemy.hp - cd)
 		_update_hp_bar(enemy)
@@ -904,6 +909,7 @@ func _register_boss_hit() -> void:
 
 
 func _boss_start_windup() -> void:
+	AudioHooks.play("boss_heavy_windup")
 	enemy.is_winding_up = true
 	enemy.windup_timer = BOSS_WINDUP_TIME
 	enemy.body.modulate = Color(1.9, 0.7, 0.4)   # 준비 중 주황 강조(지속)
@@ -927,6 +933,7 @@ func _boss_end_windup() -> void:
 
 
 func _boss_start_stance() -> void:
+	AudioHooks.play("boss_defense_stance")
 	enemy.defense_stance = true
 	enemy.stance_timer = BOSS_STANCE_DURATION
 	enemy.stance_cooldown = BOSS_STANCE_CYCLE
@@ -942,6 +949,7 @@ func _boss_end_stance() -> void:
 
 func _boss_stagger() -> void:
 	# 강공격 준비·방어 태세를 즉시 취소하고 3초간 무방비 상태로 전환
+	AudioHooks.play("boss_posture_break")
 	if enemy.is_winding_up:
 		_boss_end_windup()
 	if enemy.get("defense_stance", false):
@@ -988,6 +996,7 @@ func _deal_to_enemy(dmg: int, label: String, big: bool) -> void:
 		return
 	enemy.hp = max(0, enemy.hp - dmg)
 	current_enemy_hits += 1
+	AudioHooks.play("enemy_hit")
 	_update_hp_bar(enemy)
 	_flash(enemy)
 	_show_damage_at(enemy, dmg, label, big)
@@ -1073,6 +1082,7 @@ func _kill_enemy() -> void:
 	var was_elite: bool = enemy.get("is_elite", false)
 	var was_boss: bool = enemy.get("is_boss", false)
 	windup_label.visible = false   # 준비 중 처치 시 강공격 취소(문구 정리)
+	AudioHooks.play("boss_victory" if was_boss else "enemy_death")
 	if was_boss:
 		_bruno_settlement()         # 개인 보상(200/100) + 빚 500 상환 + 명성 상승을 한 번만
 	else:
@@ -1156,6 +1166,7 @@ func _check_level_up() -> void:
 
 
 func _level_up() -> void:
+	AudioHooks.play("level_up")
 	level += 1
 	merc.atk += LEVEL_ATK_GAIN
 	merc.max_hp += LEVEL_HP_GAIN
@@ -1293,9 +1304,11 @@ func _verify_step(hits: int) -> void:
 		_verify_debt_fame()
 	if base5 and v_traits and v_enemies and v_ogre and v_boss and v_debt and not v_save:
 		_verify_save()
+	if base5 and v_traits and v_enemies and v_ogre and v_boss and v_debt and v_save and not v_task014:
+		_verify_task014()
 	# 모든 검증 통과 시 종료 코드 0
-	if base5 and v_traits and v_enemies and v_ogre and v_boss and v_debt and v_save:
-		print("[VERIFY] ALL PASS TASK_001~011 kills=%d lv=%d atk=%d def=%d maxhp=%d" % [kill_count, level, merc.atk, merc.defense, merc.max_hp])
+	if base5 and v_traits and v_enemies and v_ogre and v_boss and v_debt and v_save and v_task014:
+		print("[VERIFY] ALL PASS TASK_001~014 kills=%d lv=%d atk=%d def=%d maxhp=%d (TASK_012·013은 플레이·문서로 별도 확인)" % [kill_count, level, merc.atk, merc.defense, merc.max_hp])
 		get_tree().quit(0)
 	if kill_count >= 120:
 		_vfail("incomplete dmg=%s hp=%s def=%s t002=%s t003=%s traits=%s enemies=%s ogre=%s boss=%s debt=%s save=%s kills=%d" % [str(v_damage), str(v_hp), str(v_def), str(v_task002), str(v_task003), str(v_traits), str(v_enemies), str(v_ogre), str(v_boss), str(v_debt), str(v_save), kill_count])
@@ -1816,7 +1829,59 @@ func _verify_save() -> void:
 	print("[VERIFY] task011 저장·불러오기 ALL PASS")
 
 
+# ── TASK_014 프로필 분리·사운드 훅 경계 검증 (결정적) ────────────
+func _verify_task014() -> void:
+	# 1) 적 5종 프로필이 모두 존재하고, 보스 상수가 프로필을 단일 출처로 한다
+	for id in ["wolf", "goblin", "shield", "ogre", "bruno"]:
+		if not EnemyProfiles.PROFILES.has(id):
+			_vfail("프로필 누락 %s" % id); return
+	if BOSS_MAX_HP != int(EnemyProfiles.PROFILES["bruno"]["max_hp"]) \
+		or BOSS_ATK != int(EnemyProfiles.PROFILES["bruno"]["atk"]) \
+		or BOSS_GOLD != int(EnemyProfiles.PROFILES["bruno"]["gold"]) \
+		or BOSS_EXP != int(EnemyProfiles.PROFILES["bruno"]["exp"]):
+		_vfail("보스 상수≠프로필"); return
+	if not EnemyProfiles.PROFILES["ogre"]["is_elite"] or not EnemyProfiles.PROFILES["bruno"]["is_boss"]:
+		_vfail("엘리트·보스 플래그"); return
+	print("[VERIFY] TASK_014 profile data PASS (적 5종·보스 단일 출처·엘리트/보스 플래그)")
+
+	# 2) 조회 결과는 복사본 — 수정해도 원본 PROFILES가 변하지 않는다
+	var c := EnemyProfiles.get_profile("wolf")
+	c["max_hp"] = 99999
+	c["size"] = Vector2(1, 1)
+	if int(EnemyProfiles.PROFILES["wolf"]["max_hp"]) != 32 \
+		or not EnemyProfiles.PROFILES["wolf"]["size"].is_equal_approx(Vector2(78, 44)):
+		_vfail("복사본 수정이 원본에 전파됨"); return
+	print("[VERIFY] TASK_014 profile copy PASS (복사본 변경이 원본 불변)")
+
+	# 3) 잘못된 프로필 id는 빈 Dictionary로 안전 처리
+	if not EnemyProfiles.get_profile("does_not_exist").is_empty():
+		_vfail("잘못된 프로필 id 비안전"); return
+	print("[VERIFY] TASK_014 bad id PASS (없는 id → 빈 프로필)")
+
+	# 4) 사운드 훅: 유효 이벤트는 호출당 정확히 1씩 증가, 잘못된 이름은 무시
+	AudioHooks.reset_counts()
+	if AudioHooks.EVENTS.size() != 19:
+		_vfail("사운드 이벤트 수=%d (기대 19)" % AudioHooks.EVENTS.size()); return
+	AudioHooks.play("merc_basic_attack")
+	if AudioHooks.get_count("merc_basic_attack") != 1:
+		_vfail("사운드 1회 호출=%d" % AudioHooks.get_count("merc_basic_attack")); return
+	AudioHooks.play("merc_basic_attack")
+	if AudioHooks.get_count("merc_basic_attack") != 2:
+		_vfail("사운드 2회 호출=%d" % AudioHooks.get_count("merc_basic_attack")); return
+	AudioHooks.play("not_a_real_event")
+	if AudioHooks.get_count("not_a_real_event") != 0:
+		_vfail("잘못된 사운드 이벤트가 계측됨"); return
+	AudioHooks.reset_counts()
+	if AudioHooks.get_count("merc_basic_attack") != 0:
+		_vfail("reset 후 카운트 잔존"); return
+	print("[VERIFY] TASK_014 audio hooks PASS (19 이벤트·호출당 1·잘못된 이름 무시·리셋)")
+
+	v_task014 = true
+	print("[VERIFY] task014 프로필·사운드 ALL PASS")
+
+
 func _kill_merc() -> void:
+	AudioHooks.play("merc_death")
 	merc.state = DEAD
 	merc.body.modulate = Color(0.5, 0.5, 0.5)
 	merc_revive_timer = MERC_DEATH_DELAY
@@ -1834,6 +1899,7 @@ func _update_merc_revive(delta: float) -> void:
 	if merc_revive_timer > 0.0:
 		return
 	# 체력 회복 후 전투 루프 재시작
+	AudioHooks.play("merc_revive")
 	merc.hp = merc.max_hp
 	merc.atk_timer = 0.0
 	merc.body.modulate = Color.WHITE
@@ -2443,6 +2509,7 @@ func _make_upgrade_button(y: float, cb: Callable) -> Button:
 	b.position = Vector2(20, y)
 	b.size = Vector2(500, 78)
 	b.add_theme_font_size_override("font_size", 22)
+	b.pressed.connect(func() -> void: AudioHooks.play("ui_button"))
 	b.pressed.connect(cb)
 	add_child(b)
 	return b
@@ -2599,6 +2666,7 @@ func _make_trait_button(y: float, cb: Callable) -> Button:
 	b.position = Vector2(40, y)
 	b.size = Vector2(460, 60)
 	b.add_theme_font_size_override("font_size", 24)
+	b.pressed.connect(func() -> void: AudioHooks.play("ui_button"))
 	b.pressed.connect(cb)
 	trait_panel.add_child(b)
 	return b

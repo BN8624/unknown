@@ -188,7 +188,11 @@
 ## 버티컬 슬라이스 (TASK 013~, 정본: VERTICAL_SLICE.md / GitHub Issue)
 
 - [x] TASK 013 — 슬라이스 범위 확정·승인 (Issue #1), VERTICAL_SLICE.md 작성
-- [ ] TASK 014 — 코드 경계 정리(데이터 분리 + 사운드 훅, 동작 0)
+- [x] TASK 014 — 코드 경계 정리(데이터 분리 + 사운드 훅, 동작 0) (Issue #2)
+  - [x] 적 5종 프로필 분리 `scripts/data/EnemyProfiles.gd`, 보스 상수 단일 출처화, 복사본 조회
+  - [x] 사운드 호출 경계 `scripts/audio/AudioHooks.gd`, 19개 이벤트 1회 훅(상태 무변경)
+  - [x] 헤드리스 ALL PASS TASK_001~014(종료 0), 사운드/프로필 신규 검증, Web 빌드 정상
+  - [x] 아이폰에서 기존 저장 복원·전투 동일 작동 확인 (사용자 "잘 되네")
 - [ ] TASK 015 — 첫 아트 샘플(용병·늑대·변경 교역로 배경)
 - [ ] TASK 016 — 샘플 아이폰 승인
 - [ ] TASK 017 — 나머지 적 아트(고블린·방패병·오우거·브루노)
