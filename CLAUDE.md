@@ -15,21 +15,35 @@
 
 ---
 
+## 작업 흐름 (TASK 013부터)
+
+TASK 013부터는 매번 새 Markdown 작업지시서 파일을 만들지 않는다.
+
+* **작업의 정본은 GitHub Issue다.** Issue 하나 = 작업 주제 하나. 본문에 작업지시서, 댓글에 Claude 결과·사용자 판단·수정 요청을 남기고, 완료되면 Issue를 닫는다.
+* **로컬에는 `CURRENT_TASK.md` 하나만** 유지한다. 지금 실행할 작업 하나만 담고, 새 작업을 시작하면 기존 내용을 지우고 덮어쓴다. 맨 위에는 Issue 번호·상태·정본 표시만 둔다.
+* Issue 확인은 가능하면 `gh issue view <번호> --comments`로 읽는다. GitHub CLI 접근이 불안정하면 사용자가 Issue 본문을 `CURRENT_TASK.md`에 붙여 둔 내용을 본다.
+* **Issue 본문/댓글과 `CURRENT_TASK.md` 내용이 다르면 GitHub Issue를 우선한다.**
+* `docs/archive/`의 과거 TASK 파일은 보관용 이력이다. **현재 지시로 사용하지 않는다.**
+
 ## 문서 우선순위
 
-문서의 역할을 다음과 같이 고정한다.
+문서의 역할을 다음과 같이 고정한다(중복 금지).
 
-1. 현재 위치와 바로 다음 작업은 `HANDOFF.md`만 본다.
-2. 게임 기획과 프로토타입 범위의 정본은 `UNKNOWN.md`다.
-3. 작업 규칙의 정본은 `CLAUDE.md`다.
-4. 결정 이유와 검토 기록은 `context-notes.md`에만 기록한다.
-5. 진행 상태와 완료 여부는 `checklist.md`에만 기록한다.
+1. 지금 실행할 작업 하나는 `CURRENT_TASK.md`에 담는다. 정본은 그 위에 적힌 GitHub Issue다.
+2. 현재 위치·완료 지점·남은 문제·다음 한 단계는 `HANDOFF.md`만 본다(과거 TASK 전체 내역을 반복하지 않는다).
+3. 게임 기획과 확정 규칙·핵심 수치의 정본은 `UNKNOWN.md`다(작업 과정·시행착오는 넣지 않는다).
+4. 작업 규칙의 정본은 `CLAUDE.md`다.
+5. 결정 이유(무엇을 했는지가 아니라 왜 그렇게 했는지)만 `context-notes.md`에 기록한다.
+6. 큰 단계만 `checklist.md`에 기록한다(TASK별 세부 구현 항목을 계속 쌓지 않는다).
+7. 작업별 전체 대화·실행 기록은 GitHub Issue에 남긴다.
 
 문서가 충돌할 경우 우선순위는 다음과 같다.
 
 ```text
 사용자의 최신 명시 지시
-→ HANDOFF.md의 현재 작업
+→ GitHub Issue 본문·댓글 (현재 작업의 정본)
+→ CURRENT_TASK.md의 현재 작업
+→ HANDOFF.md의 현재 상태
 → UNKNOWN.md의 확정 기획
 → CLAUDE.md의 작업 규칙
 → context-notes.md
