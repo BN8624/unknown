@@ -104,6 +104,20 @@ const SCREEN := Vector2(540, 960)
 const MERC_X := 162.0            # 화면 왼쪽 약 30% 지점
 const GROUND_Y := 600.0
 const ENEMY_SPAWN_X := 560.0     # 화면 오른쪽 바깥
+const FOOT_Y := 690.0            # 도형(폴백) 적 발 바닥선 (GROUND_Y + 90)
+const CHAR_FOOT_Y := 660.0      # SD 캐릭터 발 바닥선(강화 패널 700 위 안전 영역, TASK_015 GPT 확정)
+const GROUND_TOP_Y := 615.0     # 지면 배경 상단(캐릭터 발이 지면 안쪽 ~45px에 놓이게)
+const PANEL_TOP_Y := 700.0      # 강화 패널 상단(레이아웃 기준)
+const MIN_PANEL_GAP := 24.0     # 캐릭터 표시 영역과 패널 최소 여백(검 끝·피격 포함 y676 한도)
+
+# ── SD 전신 아트 에셋 (TASK_015) ─────────────────────────────────
+# 캐릭터는 투명 PNG 1장을 Sprite2D로 표시. 누락·로드 실패 시 기존 도형으로 폴백.
+const MERC_TEX_PATH := "res://assets/characters/mercenary.png"
+const WOLF_TEX_PATH := "res://assets/characters/wolf.png"
+const BG_SKY_PATH := "res://assets/bg/bg_sky.png"
+const BG_GROUND_PATH := "res://assets/bg/bg_ground.png"
+const MERC_DISP_H := 144.0       # 용병 스프라이트 표시 높이(TASK_015 GPT 확정)
+const WOLF_DISP_H := 92.0        # 늑대 스프라이트 표시 높이(TASK_015 GPT 확정)
 
 # ── 상태 머신 (필요한 최소 상태만) ───────────────────────────────
 enum { WALK, COMBAT, DEAD }
@@ -114,6 +128,12 @@ var respawn_timer := 0.0     # 적 처치 후 카운트다운
 var merc_revive_timer := 0.0 # 용병 사망 후 카운트다운
 var enemy_seq_index := 0     # 적 순환 위치 (처치 시 전진, 사망 재시작에는 유지)
 var bg_stripes: Array = []
+var bg_sky_tiles: Array = []      # SD 배경 하늘 레이어 타일(없으면 폴백 줄무늬)
+var bg_ground_tiles: Array = []   # SD 배경 지면 레이어 타일
+var bg_sky_w := 0.0               # 하늘 타일 한 장의 표시 폭(랩 기준)
+var bg_ground_w := 0.0
+const BG_SKY_SCROLL := 30.0       # 하늘은 느리게(원근감)
+const BG_GROUND_SCROLL := SCROLL_SPEED   # 지면은 기존 전진 속도
 
 # ── 검증용 (헤드리스 --verify 실행 시에만 동작) ──────────────────
 var verify_mode := false
@@ -217,9 +237,16 @@ var v_save := false
 var v_task014 := false   # 프로필 분리·사운드 훅 경계 검증(TASK_014)
 var v_phase := 0   # 검증 강화 순서: 0=체력, 1=방어력, 2=공격력
 
+# 렌더 스크린샷 모드(--shot): GUI에서 레이아웃을 직접 캡처해 확인(TASK_015~016 검증용)
+var shot_mode := false
+var shot_phase := 0
+var shot_t := 0.0
+const SHOT_DIR := "C:/Users/USER/AppData/Local/Temp/claude/C--Users-USER-unknown/ba7c179b-0677-4fb1-ad24-6193890d8154/scratchpad"
+
 
 func _ready() -> void:
 	verify_mode = "--verify" in OS.get_cmdline_user_args()
+	shot_mode = "--shot" in OS.get_cmdline_user_args()
 	rng.randomize()
 	_build_background()
 	_build_status_label()
@@ -246,6 +273,8 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	if shot_mode:
+		_shot_tick(delta)
 	if verify_mode:
 		elapsed += delta  # time_scale 적용된 게임 시간(초)
 
@@ -295,8 +324,40 @@ func _advance(delta: float) -> void:
 	_update_background(delta)
 
 
+# --shot 모드: 기본 전투 화면과 레벨업 확대 순간을 캡처해 레이아웃(발·체력바·패널·검끝)을 직접 확인한다.
+func _shot_tick(delta: float) -> void:
+	shot_t += delta
+	match shot_phase:
+		0:
+			if shot_t >= 3.2 and not enemy.is_empty():
+				_save_shot("01_basic"); shot_phase = 1; shot_t = 0.0
+		1:
+			exp += _exp_to_next(level); _check_level_up()   # 정확히 1레벨업 트리거
+			shot_phase = 2; shot_t = 0.0
+		2:
+			if shot_t >= 0.14:                              # 레벨업 확대 피크 부근
+				_save_shot("02_levelup"); shot_phase = 3; shot_t = 0.0
+		3:
+			if shot_t >= 0.5:
+				get_tree().quit(0)
+
+
+func _save_shot(tag: String) -> void:
+	var img := get_viewport().get_texture().get_image()
+	img.save_png("%s/shot_%s.png" % [SHOT_DIR, tag])
+	print("[SHOT] saved ", tag)
+
+
 func _build_background() -> void:
-	# 세로 줄무늬가 왼쪽으로 흘러 전진하는 느낌을 준다.
+	# SD 배경: 하늘(위, 느리게)·지면(아래, 빠르게) 2레이어. 누락 시 기존 줄무늬+바닥으로 폴백.
+	var sky_tex := _load_tex_or_null(BG_SKY_PATH)
+	var ground_tex := _load_tex_or_null(BG_GROUND_PATH)
+	if sky_tex != null and ground_tex != null:
+		bg_sky_w = _build_bg_layer(sky_tex, 0.0, -10, SCREEN.x / sky_tex.get_width(), bg_sky_tiles)
+		# 지면은 GROUND_TOP_Y부터 화면 하단까지 덮도록(위로 끌어올려 캐릭터 발이 지면 안쪽에 놓이게).
+		bg_ground_w = _build_bg_layer(ground_tex, GROUND_TOP_Y, -9, (SCREEN.y - GROUND_TOP_Y) / ground_tex.get_height(), bg_ground_tiles)
+		return
+	# 폴백: 세로 줄무늬가 왼쪽으로 흘러 전진하는 느낌을 준다.
 	for i in range(9):
 		var s := ColorRect.new()
 		s.color = Color(0.18, 0.20, 0.26)
@@ -308,14 +369,33 @@ func _build_background() -> void:
 	# 바닥선
 	var ground := ColorRect.new()
 	ground.color = Color(0.10, 0.12, 0.16)
-	ground.size = Vector2(SCREEN.x, SCREEN.y - (GROUND_Y + 90))
-	ground.position = Vector2(0, GROUND_Y + 90)
+	ground.size = Vector2(SCREEN.x, SCREEN.y - FOOT_Y)
+	ground.position = Vector2(0, FOOT_Y)
 	ground.z_index = -9
 	add_child(ground)
 
 
+# 한 배경 레이어를 화면 폭에 맞춘 가로 타일 2장으로 만든다. 타일 한 장의 표시 폭을 반환한다.
+func _build_bg_layer(tex: Texture2D, y: float, z: int, scale: float, tiles: Array) -> float:
+	var disp_w: float = tex.get_width() * scale
+	for i in range(2):
+		var sp := Sprite2D.new()
+		sp.texture = tex
+		sp.centered = false
+		sp.scale = Vector2(scale, scale)
+		sp.position = Vector2(i * disp_w, y)
+		sp.z_index = z
+		add_child(sp)
+		tiles.append(sp)
+	return disp_w
+
+
 func _update_background(delta: float) -> void:
 	if merc.state != WALK:
+		return
+	if not bg_ground_tiles.is_empty():
+		_scroll_bg(bg_sky_tiles, BG_SKY_SCROLL * delta, bg_sky_w)
+		_scroll_bg(bg_ground_tiles, BG_GROUND_SCROLL * delta, bg_ground_w)
 		return
 	for s in bg_stripes:
 		s.position.x -= SCROLL_SPEED * delta
@@ -323,25 +403,78 @@ func _update_background(delta: float) -> void:
 			s.position.x += 9 * 90.0
 
 
+# 타일들을 왼쪽으로 흘리고, 화면 밖으로 나간 타일을 오른쪽 끝으로 되돌려 끊김 없이 반복한다.
+func _scroll_bg(tiles: Array, dx: float, layer_w: float) -> void:
+	for sp in tiles:
+		sp.position.x -= dx
+		if sp.position.x <= -layer_w:
+			sp.position.x += layer_w * tiles.size()
+
+
+# ── SD 전신 아트 헬퍼 (TASK_015) ─────────────────────────────────
+# 텍스처를 로드한다. 누락·로드 실패면 null을 돌려 도형 폴백으로 분기시킨다(경고 1회).
+func _load_tex_or_null(path: String) -> Texture2D:
+	if ResourceLoader.exists(path):
+		var res := load(path)
+		if res is Texture2D:
+			return res
+	push_warning("아트 로드 실패, 도형 폴백: " + path)
+	return null
+
+# SD 전신 스프라이트 본체를 만든다.
+# position은 기존 도형의 좌상단(sx, FOOT_Y - box.y)을 그대로 유지해 거리 판정·lunge·체력 바 기준을 보존하고,
+# offset으로 텍스처만 도형 중심·발 바닥선(FOOT_Y)에 맞춰 표시한다(판정값은 불변, 시각만 정렬).
+func _make_sprite_body(tex: Texture2D, sx: float, box: Vector2, disp_h: float) -> Node2D:
+	# 루트 Node2D가 판정·연출 기준이다. position은 도형 좌상단과 동일(거리·lunge·체력바 보존),
+	# scale은 기본 1.0이라 강타·사망의 scale 연출(1.7/0.6)이 그대로 강조로 작동한다.
+	# 표시 축소비는 자식 Sprite2D가 흡수하므로 연출이 표시 크기를 덮어쓰지 않는다.
+	var root := Node2D.new()
+	root.position = Vector2(sx, CHAR_FOOT_Y - box.y)
+	var sp := Sprite2D.new()
+	sp.texture = tex
+	sp.centered = false
+	# 텍스처의 투명 여백을 빼고 실제 그림(불투명 영역)을 기준으로 정렬한다.
+	# disp_h는 캐릭터 실제 높이, 발은 box.y(=발 바닥선), 중심 x는 박스 중심에 맞춘다.
+	var used := tex.get_image().get_used_rect()
+	var ch: float = maxf(1.0, used.size.y)
+	var s: float = disp_h / ch
+	sp.scale = Vector2(s, s)
+	sp.position = Vector2(
+		box.x * 0.5 - (used.position.x + used.size.x * 0.5) * s,
+		box.y - (used.position.y + used.size.y) * s
+	)
+	root.add_child(sp)
+	return root
+
+
 # ── 용병 ─────────────────────────────────────────────────────────
 func _build_merc() -> void:
-	var body := ColorRect.new()
-	body.color = Color(0.30, 0.65, 0.95)
-	body.size = Vector2(60, 90)
-	body.position = Vector2(MERC_X, GROUND_Y)
-	body.pivot_offset = Vector2(30, 45)   # 확대/강조가 중심에서 일어나게
+	var box := Vector2(60, 90)
+	var tex := _load_tex_or_null(MERC_TEX_PATH)
+	var body: CanvasItem
+	if tex != null:
+		body = _make_sprite_body(tex, MERC_X, box, MERC_DISP_H)
+	else:
+		var rect := ColorRect.new()        # 폴백: 기존 임시 도형
+		rect.color = Color(0.30, 0.65, 0.95)
+		rect.size = box
+		rect.position = Vector2(MERC_X, GROUND_Y)
+		rect.pivot_offset = Vector2(30, 45)
+		body = rect
 	add_child(body)
 
+	# 체력 바는 실제 표시 높이의 머리 위에 둔다(스프라이트면 CHAR_FOOT_Y 기준).
+	var head_y: float = (CHAR_FOOT_Y - MERC_DISP_H) if tex != null else GROUND_Y
 	var hp_bg := ColorRect.new()
 	hp_bg.color = Color(0, 0, 0, 0.6)
 	hp_bg.size = Vector2(64, 10)
-	hp_bg.position = Vector2(MERC_X - 2, GROUND_Y - 18)
+	hp_bg.position = Vector2(MERC_X - 2, head_y - 18)
 	add_child(hp_bg)
 
 	var hp_fill := ColorRect.new()
 	hp_fill.color = Color(0.30, 0.85, 0.40)
 	hp_fill.size = Vector2(60, 8)
-	hp_fill.position = Vector2(MERC_X, GROUND_Y - 17)
+	hp_fill.position = Vector2(MERC_X, head_y - 17)
 	add_child(hp_fill)
 
 	merc = {
@@ -493,27 +626,36 @@ func _build_enemy(typ: String, prof: Dictionary, wave_cur: int, wave_total: int,
 	var by: float = (GROUND_Y + 90) - bsize.y
 	var bar_w: float = bsize.x
 
-	var body := ColorRect.new()
-	body.color = bcolor
-	body.size = bsize
-	body.position = Vector2(sx, by)
+	# 늑대만 SD 전신 스프라이트(누락 시 도형 폴백). 다른 적은 기존 도형 유지.
+	var wolf_tex: Texture2D = _load_tex_or_null(WOLF_TEX_PATH) if typ == "wolf" else null
+	var body: CanvasItem
+	if wolf_tex != null:
+		body = _make_sprite_body(wolf_tex, sx, bsize, WOLF_DISP_H)
+	else:
+		var rect := ColorRect.new()
+		rect.color = bcolor
+		rect.size = bsize
+		rect.position = Vector2(sx, by)
+		body = rect
 	add_child(body)
 
+	# 체력 바·이름표는 실제 표시 높이의 머리 위에 둔다(스프라이트면 CHAR_FOOT_Y 기준).
+	var head_y: float = (CHAR_FOOT_Y - WOLF_DISP_H) if wolf_tex != null else by
 	var hp_bg := ColorRect.new()
 	hp_bg.color = Color(0, 0, 0, 0.6)
 	hp_bg.size = Vector2(bar_w + 4, 10)
-	hp_bg.position = Vector2(sx - 2, by - 20)
+	hp_bg.position = Vector2(sx - 2, head_y - 20)
 	add_child(hp_bg)
 
 	var hp_fill := ColorRect.new()
 	hp_fill.color = Color(0.95, 0.75, 0.20)
 	hp_fill.size = Vector2(bar_w, 8)
-	hp_fill.position = Vector2(sx, by - 19)
+	hp_fill.position = Vector2(sx, head_y - 19)
 	add_child(hp_fill)
 
 	var name_label := Label.new()
 	name_label.size = Vector2(180, 26)
-	name_label.position = Vector2(sx + bar_w * 0.5 - 90, by - 48)
+	name_label.position = Vector2(sx + bar_w * 0.5 - 90, head_y - 48)
 	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_label.add_theme_font_size_override("font_size", 18)
 	if typ == "goblin":
@@ -960,7 +1102,7 @@ func _boss_stagger() -> void:
 	enemy.posture_window = 0.0
 	if is_instance_valid(enemy.body):
 		enemy.body.modulate = Color(0.55, 0.55, 0.85)   # 휘청이는 표현
-		var b: ColorRect = enemy.body
+		var b = enemy.body
 		var home: float = enemy.get("base_x", b.position.x)
 		var tw := create_tween()
 		tw.tween_property(b, "position:x", home - 10.0, 0.06)
@@ -1007,7 +1149,7 @@ func _enemy_pushback() -> void:
 	# 강타 시 적이 짧게 밀렸다 돌아온다 (고정 기준 위치로 복귀)
 	if enemy.is_empty():
 		return
-	var b: ColorRect = enemy.body
+	var b = enemy.body
 	var home: float = enemy.get("base_x", b.position.x)
 	var tw := create_tween()
 	tw.tween_property(b, "position:x", home + 24.0, 0.08)
@@ -1032,7 +1174,7 @@ func _show_damage_at(target: Dictionary, dmg: int, label: String, _big: bool) ->
 			col = Color(1.0, 0.45, 0.2); fs = 44
 		"강공격 방어":
 			col = Color(0.6, 0.85, 1.0); fs = 40
-	var b: ColorRect = target.body
+	var b = target.body
 	var lbl := Label.new()
 	lbl.text = ("%s -%d" % [label, dmg]) if label != "" else "-%d" % dmg
 	lbl.add_theme_font_size_override("font_size", fs)
@@ -1050,7 +1192,7 @@ func _show_damage_at(target: Dictionary, dmg: int, label: String, _big: bool) ->
 
 func _tint(unit: Dictionary, color: Color, dur: float) -> void:
 	# 유닛 본체를 잠깐 특정 색으로 물들였다 복귀 (특성 강조용)
-	var body: ColorRect = unit.body
+	var body = unit.body
 	if unit.get("state", -1) == DEAD:
 		return
 	body.modulate = color
@@ -1060,13 +1202,25 @@ func _tint(unit: Dictionary, color: Color, dur: float) -> void:
 
 func _spawn_ghost(unit: Dictionary, color: Color) -> void:
 	# 앞으로 흐르며 사라지는 잔상 (연격·반격 강조용)
-	var src: ColorRect = unit.body
-	var g := ColorRect.new()
-	g.color = color
-	g.size = src.size
-	g.position = src.position
+	var src = unit.body
+	var g                                  # ColorRect 또는 Sprite2D
+	if src is Sprite2D:
+		var s := Sprite2D.new()            # 스프라이트면 같은 모습의 반투명 잔상
+		s.texture = src.texture
+		s.centered = src.centered
+		s.scale = src.scale
+		s.offset = src.offset
+		s.position = src.position
+		s.modulate = color
+		g = s
+	else:
+		var rect := ColorRect.new()        # 도형이면 사각 잔상
+		rect.color = color
+		rect.size = src.size
+		rect.position = src.position
+		rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		g = rect
 	g.z_index = -1
-	g.mouse_filter = Control.MOUSE_FILTER_IGNORE   # 잔상이 터치를 가로채지 않게
 	add_child(g)
 	var tw := create_tween()
 	tw.tween_property(g, "position:x", g.position.x + 48.0, 0.28)
@@ -1203,11 +1357,11 @@ func _show_level_up_effect() -> void:
 	tw.tween_callback(func() -> void: levelup_label.visible = false)
 	# 용병 강조: 중심에서 크게 부풀었다 복귀 + 금색 번쩍
 	if not merc.is_empty():
-		var b: ColorRect = merc.body
+		var b = merc.body
 		b.scale = Vector2.ONE
 		b.modulate = Color(2.2, 1.8, 0.5)   # 금색 번쩍
 		var t2 := create_tween()
-		t2.tween_property(b, "scale", Vector2(1.7, 1.7), 0.16).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		t2.tween_property(b, "scale", Vector2(1.18, 1.18), 0.16).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		t2.parallel().tween_property(b, "modulate", Color.WHITE, 0.45)
 		t2.tween_property(b, "scale", Vector2.ONE, 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
 
@@ -1959,7 +2113,7 @@ func _boss_return_to_hunt() -> void:
 func _lunge(unit: Dictionary, dist: float = 22.0) -> void:
 	# 공격 순간 앞으로 짧게 움직였다 복귀. 항상 고정 기준 위치(home)로 돌아와
 	# 공격이 겹쳐도 본체가 조금씩 밀려나지 않게 한다.
-	var body: ColorRect = unit.body
+	var body = unit.body
 	var dir := 1.0 if unit == merc else -1.0
 	var home: float = unit.get("base_x", body.position.x)
 	var tw := create_tween()
@@ -1969,7 +2123,7 @@ func _lunge(unit: Dictionary, dist: float = 22.0) -> void:
 
 func _flash(unit: Dictionary) -> void:
 	# 피격 대상이 잠깐 밝아진다
-	var body: ColorRect = unit.body
+	var body = unit.body
 	if unit.get("state", -1) == DEAD:
 		return
 	body.modulate = Color(2.0, 2.0, 2.0)
