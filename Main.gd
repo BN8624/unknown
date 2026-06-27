@@ -666,11 +666,11 @@ func _build_hud() -> void:
 		_open_settings())
 	add_child(gear)
 
-	var coin := _ui_icon("icon_gold", Vector2(18, 52), 30)
+	var coin := _icon_sprite("icon_gold", Vector2(32, 66), 28)
 	if coin != null:
 		add_child(coin)
 	lbl_gold = _new_label("", 22, COL_GOLD)
-	lbl_gold.position = Vector2(54, 54)
+	lbl_gold.position = Vector2(52, 54)
 	add_child(lbl_gold)
 
 	lbl_level = _new_label("", 22, COL_TEXT)
@@ -739,11 +739,11 @@ func _make_upgrade_row(udef: Dictionary, y: float) -> void:
 	var id: String = udef["id"]
 	var panel := _new_panel(Rect2(16, y, 508, 44), COL_PANEL_HI)
 	add_child(panel)
-	var ic := _ui_icon("icon_" + id, Vector2(24, y + 4), 36)
+	var ic := _icon_sprite("icon_" + id, Vector2(38, y + 22), 30)
 	if ic != null:
 		add_child(ic)
 	var name_lbl := _new_label("", 18, COL_TEXT)
-	name_lbl.position = Vector2(70, y + 9)
+	name_lbl.position = Vector2(62, y + 9)
 	add_child(name_lbl)
 	var value_lbl := _new_label("", 17, COL_DIM)
 	value_lbl.position = Vector2(180, y + 10)
@@ -2215,7 +2215,21 @@ func _new_label(text: String, fs: int, col: Color) -> Label:
 	return l
 
 
-# UI 아이콘(assets/ui/<name>.png) TextureRect. 없으면 null.
+# 인라인 작은 아이콘(Sprite2D, 크기 정확히 제어). center=중심좌표, disp=표시 한 변(px).
+func _icon_sprite(name: String, center: Vector2, disp: float) -> Sprite2D:
+	var path := "res://assets/ui/%s.png" % name
+	if not ResourceLoader.exists(path):
+		return null
+	var s := Sprite2D.new()
+	s.texture = load(path)
+	s.centered = true
+	var th: float = maxf(1.0, s.texture.get_height())
+	s.scale = Vector2(disp / th, disp / th)
+	s.position = center
+	return s
+
+
+# UI 아이콘(assets/ui/<name>.png) TextureRect(전체화면 배경 등). 없으면 null.
 func _ui_icon(name: String, pos: Vector2, size: float) -> TextureRect:
 	var path := "res://assets/ui/%s.png" % name
 	if not ResourceLoader.exists(path):
