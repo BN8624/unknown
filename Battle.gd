@@ -356,8 +356,23 @@ func _shot_tick(delta: float) -> void:
 				_save_shot("05_ogre"); _shot_force("boss"); shot_phase = 6; shot_t = 0.0
 		6:
 			if shot_t >= 0.4:
-				_save_shot("06_bruno"); shot_phase = 7; shot_t = 0.0
+				_save_shot("06_bruno")
+				_boss_start_stance(); _update_boss_ui()   # 방어 태세(청색 강조·상태 라벨)
+				shot_phase = 7; shot_t = 0.0
 		7:
+			if shot_t >= 0.4:
+				_save_shot("07_stance")
+				_boss_stagger(); _update_boss_ui()         # 자세 붕괴(무방비·상태 라벨)
+				shot_phase = 8; shot_t = 0.0
+		8:
+			if shot_t >= 0.4:
+				_save_shot("08_stagger")
+				gold = 0; _update_upgrade_ui()             # 강화 불가(골드 부족 → 버튼 비활성화)
+				shot_phase = 9; shot_t = 0.0
+		9:
+			if shot_t >= 0.3:
+				_save_shot("09_noupgrade"); shot_phase = 10; shot_t = 0.0
+		10:
 			if shot_t >= 0.3:
 				get_tree().quit(0)
 

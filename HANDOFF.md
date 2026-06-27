@@ -30,7 +30,7 @@
 
 > **TASK 018 마무리 (Issue #5).** 상단 재배치·겹침 수정 끝, 아이폰 확인 완료.
 > 1) TASK 018 커밋·푸시 → Issue #5 보고 → 닫기.
-> 2) 남은 선택지(원하면): 나머지 `--shot` 장면(보스 방어태세·자세붕괴, 강화 불가, 상세 패널), 별도 `[상세]` 패널 생성 여부(현재는 강화 버튼이 능력치 표시로 대체, 미생성).
+> 2) 보스 상태 `--shot` 추가 완료(07 방어태세·08 자세붕괴·09 강화불가). 별도 `[상세]` 패널은 최소변경 원칙상 미생성(강화 버튼이 능력치 표시로 대체).
 > 주의: `_verify_debt_fame`가 `boss_progress_label.text`를 고정 비교하므로 목표줄 형식 바꿀 땐 그 검증도 함께 수정. UI 좌표·로직 상세는 CURRENT_TASK.md.
 > 이후: 사운드 019, 외형 승급 020, 슬라이스 전체 검증 021.
 
@@ -39,7 +39,7 @@
 ```
 "C:\Users\USER\godot-engine\Godot_v4.7-stable_win64_console.exe" --path "C:\Users\USER\unknown" -- --shot
 ```
-GUI에서 6장(기본·레벨업·고블린무리·방패병·오우거·브루노)을 `scratchpad/shot_0*.png`로 저장 후 자동 종료(`_shot_force`가 각 적을 화면 안 고정 위치에 강제 스폰). 저장 경로는 `SHOT_DIR` 상수(환경 특정 — 다른 머신은 수정 필요). 캐릭터 구조: `Sprite2D`는 Node2D 래퍼의 자식, 표시 크기는 `get_used_rect`로 실제 그림 기준 정렬. 적 텍스처·높이는 `ENEMY_TEX`/`ENEMY_DISP_H` 매핑(보스는 `BRUNO_*`).
+GUI에서 9장(기본·레벨업·고블린무리·방패병·오우거·브루노·방어태세·자세붕괴·강화불가)을 `scratchpad/shot_0*.png`로 저장 후 자동 종료(`_shot_force`가 각 적을 화면 안 고정 위치에 강제 스폰, 보스 상태는 `_boss_start_stance`·`_boss_stagger` 강제 호출, 강화불가는 골드 0). 저장 경로는 `SHOT_DIR` 상수(환경 특정 — 다른 머신은 수정 필요). 캐릭터 구조: `Sprite2D`는 Node2D 래퍼의 자식, 표시 크기는 `get_used_rect`로 실제 그림 기준 정렬. 적 텍스처·높이는 `ENEMY_TEX`/`ENEMY_DISP_H` 매핑(보스는 `BRUNO_*`).
 
 ## 코드 현황 (TASK 014~ 참고)
 
