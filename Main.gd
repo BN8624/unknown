@@ -1026,6 +1026,8 @@ func _player_attack() -> void:
 		dmg = int(round(dmg * GameData.PLAYER_BASE["crit_mult"]))
 	enemy["hp"] = int(enemy["hp"]) - dmg
 	_play("crit" if crit else "slash")
+	if crit:
+		_hitstop(0.05)
 	_hit_flash(enemy_node)
 	var hitpos := Vector2(ENEMY_X - enemy["r"] * 0.4, GROUND_Y - enemy["r"])
 	_slash_fx(hitpos, crit)
@@ -1080,6 +1082,7 @@ func _boss_heavy() -> void:
 	var dmg: int = maxi(1, int(round(int(enemy["atk"]) * 2.6)) - p_def)
 	p_hp -= dmg
 	_play("crit")
+	_hitstop(0.07)
 	_screen_flash(Color(0.9, 0.15, 0.15, 0.32))
 	_hit_flash(hero)
 	_spawn_hit_burst(Vector2(HERO_X, GROUND_Y - 60), Color(1.0, 0.4, 0.4, 0.9), 16)
@@ -1089,6 +1092,29 @@ func _boss_heavy() -> void:
 	boss_winding = false
 	if p_hp <= 0:
 		_player_down()
+
+
+var _hitstop_busy := false
+
+# 히트스톱: 찰나의 시간 정지로 강타의 무게감을 준다(치명타·보스 강공격). 실시간 타이머로 복구.
+func _hitstop(dur: float) -> void:
+	if _hitstop_busy or _shot_mode:
+		return
+	_hitstop_busy = true
+	Engine.time_scale = 0.06
+	await get_tree().create_timer(dur, true, false, true).timeout  # ignore_time_scale
+	Engine.time_scale = 1.0
+	_hitstop_busy = false
+
+
+# 버튼 누름 피드백: 살짝 줄었다 복귀(촉각적 반응).
+func _btn_pop(node: Control) -> void:
+	if not is_instance_valid(node):
+		return
+	node.pivot_offset = node.size * 0.5
+	var tw := create_tween()
+	tw.tween_property(node, "scale", Vector2(0.93, 0.93), 0.05)
+	tw.tween_property(node, "scale", Vector2(1, 1), 0.09).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 # 타격 순간 흰 베기 섬광(대각선 스트릭). 치명타는 더 크고 노랗게.
@@ -1129,7 +1155,9 @@ func _player_down() -> void:
 
 func _enemy_die() -> void:
 	enemy["dying"] = true
-	gold += _gold_gain(int(enemy["gold"]))
+	var g := _gold_gain(int(enemy["gold"]))
+	gold += g
+	_float_text(Vector2(HERO_X + 30, GROUND_Y - 96), "+%s" % _fmt(g), COL_GOLD, enemy["boss"])
 	_gain_exp(int(enemy["exp"]))
 	var was_boss: bool = enemy["boss"]
 	_play("boss_victory" if was_boss else "")
@@ -1197,6 +1225,7 @@ func _on_upgrade_pressed(id: String) -> void:
 	if gold < cost:
 		return
 	_play("button")
+	_btn_pop(up_rows[id]["panel"])
 	gold -= cost
 	upgrades[id] = int(upgrades[id]) + 1
 	_recompute_stats()
@@ -1466,6 +1495,7 @@ func _style_button(b: Button) -> void:
 	b.add_theme_stylebox_override("hover", hover)
 	b.add_theme_stylebox_override("pressed", hover)
 	b.add_theme_color_override("font_color", COL_TEXT)
+	b.pressed.connect(_btn_pop.bind(b))
 
 
 func _rect_poly(pos: Vector2, sz: Vector2, col: Color) -> Polygon2D:
