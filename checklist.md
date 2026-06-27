@@ -211,12 +211,15 @@
   - [x] 보스 UI 보스전만·상단 비겹침 유지, --verify ALL PASS TASK_001~014, --shot 9장, Web 빌드
   - [x] 보스 상태 shot 추가(07 방어태세·08 자세붕괴·09 강화불가), 상세 패널은 최소변경 원칙상 미생성
   - [x] 커밋 `10d14ec`·`560f0d2` 푸시·Issue #5 보고·닫기
-- [ ] TASK 019 — 전투 효과·사운드 (Issue #6 본문, 제목 오기) — 코드·빌드 완료, 아이폰 사운드 확인 대기
+- [x] TASK 019 — 전투 효과·사운드 (Issue #6) — 완료·커밋·푸시·Issue 닫음(아이폰 사운드는 사용자 판단으로 마무리)
   - [x] 효과음 11종 자체 합성 CC0(`scripts/audio/gen_sfx.py` → `assets/sfx/*.wav`), `AUDIO_CREDITS.md` 기록
   - [x] `AudioHooks` SFX_MAP(19→11) + sink 등록(카운트 보존), `Battle.gd` 재생 풀 8개(`_setup_audio`/`play_sfx`)
   - [x] 시각 효과는 기존 활용(신규 0), `--verify` ALL PASS, `--shot` 9장, Web 빌드
-  - [ ] 아이폰 첫 터치 후 재생 확인(사용자) → Issue #6 보고·닫기
-- [ ] TASK 020 — 외형 승급(브루노 처치 후 철검+가죽)
+- [ ] TASK 020 — 외형 승급(브루노 처치 후 철검+가죽) (Issue #7) — 코드 완료, 실제 에셋 대기
+  - [x] `_choose_merc_tex` 순수 함수 + `_merc_tex_path`, `_apply_merc_appearance`(로드 후·승리 시 교체) + 승급 연출
+  - [x] 전용 검증 `_verify_task020`(false→기본·true+에셋→업그레이드·누락→폴백), `--verify` ALL PASS(+020)
+  - [x] 스왑 파이프라인 임시 플레이스홀더로 스모크 확인(발·크기·잘림 OK) 후 플레이스홀더 삭제(기본 폴백)
+  - [ ] **실제 `mercenary_upgraded.png`(RGBA SD) 사용자 제공** → import·`--shot` 7장·Web 빌드·아이폰 확인 → Issue #7 보고
 - [ ] TASK 021 — 슬라이스 전체 아이폰 검증
 
 ## 버티컬 슬라이스 이후 (범위 밖)

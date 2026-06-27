@@ -6,7 +6,8 @@
 
 프로토타입 v0.1 승인 완료. 지금은 **버티컬 슬라이스** 단계 — 검증된 첫 지역 흐름을 그대로 두고 "실제 게임처럼 보이고 들리는 작은 완성품"으로 만든다. 정본 계획은 `VERTICAL_SLICE.md`.
 
-**TASK 019(Issue #6 본문) 사운드 — 코드·빌드 완료, 아이폰 사운드 확인 대기.** 효과음 11종 자체 합성(CC0, `scripts/audio/gen_sfx.py` → `assets/sfx/*.wav`). `AudioHooks`에 SFX_MAP(19이벤트→11SFX) + sink 등록 경로 추가(카운트 동작 보존 → --verify 영향 없음). `Battle.gd`가 AudioStreamPlayer 풀 8개로 실제 재생(`_setup_audio`/`play_sfx`, verify 모드 제외). `AUDIO_CREDITS.md` 출처 기록. 시각 효과는 기존 활용(신규 0). `--verify` ALL PASS, `--shot` 9장, Web 빌드 완료. **다음: 아이폰 첫 터치 후 재생 확인 → Issue #6 보고.**
+**TASK 020(Issue #7) 외형 승급 — 코드 완료, 실제 아트 에셋 사용자 제공 대기.** 브루노 처치(`boss_defeated`) 시 용병 텍스처 `mercenary.png`→`mercenary_upgraded.png` 교체. 순수 함수 `_choose_merc_tex(defeated, upgraded_exists)`(검증 결정적) + `_merc_tex_path`, `_apply_merc_appearance(flash)`(Sprite2D 텍스처만 교체·재정렬)를 ①`_load_game` 후 ②브루노 승리(`_bruno_settlement`)에서 호출. 짧은 승급 연출(`_play_upgrade_flash`: 확대·반짝임·"장비가 좋아졌다"). 에셋 누락 시 기본 용병 폴백. 전용 검증 `_verify_task020` 추가 → `--verify` **ALL PASS TASK_001~014(+020)**. 임시 플레이스홀더로 스왑 스모크 확인 후 삭제(현재 기본 폴백). 새 저장 키 없음·전투 수치 불변. ⚠ **다음: 사용자가 `assets/characters/mercenary_upgraded.png`(RGBA SD 전신) 제공 → import·`--shot`·Web 빌드·아이폰 확인 → Issue #7 보고.**
+(이전)**TASK 019(Issue #6) 사운드 — 완료·커밋·푸시·Issue 닫음.** 효과음 11종 자체 합성(CC0, `scripts/audio/gen_sfx.py` → `assets/sfx/*.wav`). `AudioHooks`에 SFX_MAP(19이벤트→11SFX) + sink 등록 경로 추가(카운트 동작 보존 → --verify 영향 없음). `Battle.gd`가 AudioStreamPlayer 풀 8개로 실제 재생(`_setup_audio`/`play_sfx`, verify 모드 제외). `AUDIO_CREDITS.md` 출처 기록. 시각 효과는 기존 활용(신규 0). `--verify` ALL PASS, `--shot` 9장, Web 빌드 완료. **다음: 아이폰 첫 터치 후 재생 확인 → Issue #6 보고.**
 (이전)**TASK 018(Issue #5) UI 재배치 — 완료·커밋·푸시·Issue 닫음.** 상단 재배치(줄1 레벨·골드+특성버튼 / 줄2 EXP바 / 줄3 빚·명성·보스진행, 용병HP·공격·방어·적HP 텍스트는 HP바·강화버튼·이름표에 있어 제거). 특성 버튼이 EXP 바를 침범하던 겹침 수정(버튼 (388,6)·크기 (136,34)·폰트 20). 보스 상태 shot 3장 추가(07 방어태세·08 자세붕괴·09 강화불가). `--verify` ALL PASS TASK_001~014, `--shot` 9장 정상, Web 빌드 재내보내기 후 **아이폰에서 겹침 해결 확인 완료.** 커밋 `10d14ec`·`560f0d2`.
 ⚠ **다음 세션 먼저 할 일**: TASK 019(사운드) 새 Issue 작성·`CURRENT_TASK.md` 덮어쓰기부터.
 (이전: TASK 015~017 용병·늑대·배경·적4종 SD 적용·아이폰 확인 완료. TASK 016은 015에 통합.)
@@ -29,11 +30,11 @@
 
 ## 다음 액션
 
-> **TASK 019 사운드 — 코드·빌드 완료, 아이폰 확인만 남음(Issue #6).**
-> 1) 아이폰(`/?v=19`)에서 첫 버튼 터치 후 효과음 재생·음량·구분 확인.
-> 2) 확인되면 Issue #6 보고(변경파일·음원목록·라이선스·SFX매핑·연결위치·shot·verify·빌드URL·아이폰결과·다음TASK) → 닫기.
-> 주의: `_verify_debt_fame`가 `boss_progress_label.text`를 고정 비교하므로 목표줄 형식 바꿀 땐 그 검증도 함께 수정. 음원 교체 시 매핑은 `AudioHooks.SFX_MAP`, 파일은 같은 이름 덮어쓰기.
-> 이후: 외형 승급 020, 슬라이스 전체 검증 021.
+> **TASK 020 외형 승급 — 코드 완료, 에셋 대기(Issue #7).**
+> 1) 사용자가 `assets/characters/mercenary_upgraded.png`(RGBA 투명 SD 전신, 용병과 같은 키 계열·오른쪽 바라봄, 철검+가죽) 제공.
+> 2) 도착 후: `--headless --import` → `--shot`(10_upgraded 등) 확인 → Web 빌드 → 아이폰 확인 → Issue #7 보고·닫기.
+> 주의: 표시 높이 `MERC_DISP_H=144` 고정. 새 에셋이 크거나 작게 보이면 에셋 여백/정렬 2~5px만 조정(`_apply_merc_appearance`는 기존 정렬식 동일). 음원 교체는 `AudioHooks.SFX_MAP`.
+> 이후: 슬라이스 전체 아이폰 검증 021.
 
 ## 렌더 스크린샷 (TASK 015~)
 
