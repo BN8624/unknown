@@ -89,8 +89,10 @@ static func is_boss_stage(stage: int) -> bool:
 	return stage % BOSS_EVERY == 0
 
 # 일반 적 스탯(스테이지 기반 스케일). 보스는 배수 적용.
+# 밸런스 검증(tools/sim.py): 첫보스 ~1분, 20층 ~5분, 30층 ~14분, 40층 ~40분 → 이후 환생 유도.
+# hp 스케일 1.17→1.16로 2지역 벽 완화(52분→40분). 환생 배수(x1.5~3)로 재주행 가속.
 static func enemy_hp(stage: int) -> int:
-	return int(round(30.0 * pow(1.17, stage - 1)))
+	return int(round(30.0 * pow(1.16, stage - 1)))
 
 static func enemy_atk(stage: int) -> int:
 	return int(round(6.0 * pow(1.11, stage - 1)))
