@@ -162,6 +162,49 @@
 
 ---
 
+## 부록 — 적·보스 영문 키 확정표 (파일명 그대로)
+
+> 이 키로 파일명을 만들면 개발자가 즉시 드롭인. 한글명은 게임 내 표시명(변경 금지).
+
+### 일반 적 15종 → `enemy_<키>.png` (+ 애니 `enemy_<키>_idle/_hit.png`)
+| 지역 | 한글명 | 영문 키 | 파일명 |
+|---|---|---|---|
+| 1 갈라진 변경 | 들개 | `wild_dog` | enemy_wild_dog |
+| 1 | 부패 정령 | `rot_spirit` | enemy_rot_spirit |
+| 1 | 균열 고블린 | `rift_goblin` | enemy_rift_goblin |
+| 1 | 가시벌레 | `spike_bug` | enemy_spike_bug |
+| 1 | 그림자 망령 | `shadow_wraith` | enemy_shadow_wraith |
+| 2 잿빛 협곡(화산) | 잿불 박쥐 | `ember_bat` | enemy_ember_bat |
+| 2 | 용암 슬라임 | `lava_slime` | enemy_lava_slime |
+| 2 | 그을린 늑대 | `scorched_wolf` | enemy_scorched_wolf |
+| 2 | 재 정령 | `ash_spirit` | enemy_ash_spirit |
+| 2 | 불씨 골렘 | `cinder_golem` | enemy_cinder_golem |
+| 3 얼어붙은 심연(설원) | 서리 망령 | `frost_wraith` | enemy_frost_wraith |
+| 3 | 얼음 슬라임 | `ice_slime` | enemy_ice_slime |
+| 3 | 동토 늑대 | `tundra_wolf` | enemy_tundra_wolf |
+| 3 | 심연 술사 | `abyss_sorcerer` | enemy_abyss_sorcerer |
+| 3 | 한기 거미 | `chill_spider` | enemy_chill_spider |
+
+### 보스 12종 → `boss_<키>.png` + 초상화 `portrait_<키>.png` (+ 애니 `boss_<키>_idle/_attack/_hit/_death.png`)
+| 지역 | 한글명 | 영문 키 | 전투 스프라이트 | 초상화 |
+|---|---|---|---|---|
+| 1 | 거대 거미 아라크 | `arachne` | boss_arachne | portrait_arachne |
+| 1 | 이끼 골렘 모스 | `moss_golem` | boss_moss_golem | portrait_moss_golem |
+| 1 | 망령군주 베일 | `wraith_lord` | boss_wraith_lord | portrait_wraith_lord |
+| 1 | 균열의 수호자 | `rift_guardian` | boss_rift_guardian | portrait_rift_guardian |
+| 2 | 화염군주 이그 | `flame_lord` | boss_flame_lord | portrait_flame_lord |
+| 2 | 용암 거인 칼 | `lava_giant` | boss_lava_giant | portrait_lava_giant |
+| 2 | 잿빛 드레이크 | `ashen_drake` | boss_ashen_drake | portrait_ashen_drake |
+| 2 | 협곡의 지배자 | `canyon_ruler` | boss_canyon_ruler | portrait_canyon_ruler |
+| 3 | 빙결군주 헬름 | `frost_lord` | boss_frost_lord | portrait_frost_lord |
+| 3 | 심연 거미 여왕 | `spider_queen` | boss_spider_queen | portrait_spider_queen |
+| 3 | 얼어붙은 망령왕 | `frozen_wraith_king` | boss_frozen_wraith_king | portrait_frozen_wraith_king |
+| 3 | 심연의 지배자 | `abyss_ruler` | boss_abyss_ruler | portrait_abyss_ruler |
+
+> 합계: 일반 적 15 + 보스 27(스프라이트 12 + 초상화 12 + 애니 별도). 모든 키 소문자·언더바.
+
+---
+
 ## 7. 납품 체크리스트
 
 - [ ] 투명 RGBA, 발 바닥 중앙 피벗, 애니 프레임 동일 캔버스.
