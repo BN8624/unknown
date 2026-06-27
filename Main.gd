@@ -31,6 +31,10 @@ var stage := 1
 var kills := 0
 var max_stage_cleared := 0
 var region_cleared := false
+var souls := 0                # 환생 재화(균열석)
+var prestige_count := 0
+var last_save_unix := 0
+var p_global_mult := 1.0      # 균열석 영구 배수
 
 # ── 파생 능력치 ──────────────────────────────────────────────────
 var p_atk := 10
@@ -65,7 +69,14 @@ var reward_overlay: Control
 var reward_title: Label
 var reward_body: Label
 var settings_overlay: Control
+var prestige_overlay: Control
+var prestige_body: Label
+var prestige_do_btn: Button
+var lbl_souls: Label
 var save_timer := 0.0
+var sfx_streams := {}
+var sfx_players: Array = []
+var sfx_next := 0
 
 
 func _ready() -> void:
@@ -77,6 +88,8 @@ func _ready() -> void:
 	_build_notice()
 	_build_reward_overlay()
 	_build_settings_overlay()
+	_build_prestige_overlay()
+	_setup_audio()
 	var s := SaveSystem.load_state()
 	if not s.is_empty():
 		_apply_save(s)
@@ -86,6 +99,8 @@ func _ready() -> void:
 	_update_hud()
 	_update_growth_buttons()
 	_apply_font()
+	if not _shot_mode and not s.is_empty():
+		_grant_offline(s)
 	if _shot_mode:
 		_run_shot_sequence()
 
@@ -106,6 +121,15 @@ func _run_shot_sequence() -> void:
 	_show_reward("보스 격파!", "거대 거미 아라크 처치\n골드 +1,200\n전투력이 단단해졌습니다.\n\n6층으로 전진!")
 	await get_tree().create_timer(0.4).timeout
 	_save_shot("r04_reward")
+	reward_overlay.visible = false
+	max_stage_cleared = 12; souls = 8; _recompute_stats(); _update_hud()
+	_open_prestige()
+	await get_tree().create_timer(0.4).timeout
+	_save_shot("r05_prestige")
+	prestige_overlay.visible = false
+	_show_reward("돌아오셨군요!", "자리를 비운 3시간 12분 동안\n부하들이 사냥했습니다.\n\n골드 +18,400")
+	await get_tree().create_timer(0.4).timeout
+	_save_shot("r06_offline")
 	get_tree().quit(0)
 
 func _save_shot(tag: String) -> void:
@@ -192,7 +216,7 @@ func _build_battle_area() -> void:
 
 # ── 상단 HUD ─────────────────────────────────────────────────────
 func _build_hud() -> void:
-	var panel := _new_panel(Rect2(8, 8, 524, 116), COL_PANEL)
+	var panel := _new_panel(Rect2(8, 8, 524, 128), COL_PANEL)
 	add_child(panel)
 
 	var title := _new_label(GameData.GAME_TITLE, 26, COL_GOLD)
@@ -212,7 +236,9 @@ func _build_hud() -> void:
 	gear.size = Vector2(46, 38)
 	gear.add_theme_font_size_override("font_size", 22)
 	_style_button(gear)
-	gear.pressed.connect(func() -> void: settings_overlay.visible = true)
+	gear.pressed.connect(func() -> void:
+		_play("button")
+		settings_overlay.visible = true)
 	add_child(gear)
 
 	lbl_gold = _new_label("", 22, COL_GOLD)
@@ -225,16 +251,22 @@ func _build_hud() -> void:
 	lbl_level.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	add_child(lbl_level)
 
+	lbl_souls = _new_label("", 15, Color(0.80, 0.72, 1.0))
+	lbl_souls.position = Vector2(180, 82)
+	lbl_souls.size = Vector2(330, 18)
+	lbl_souls.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	add_child(lbl_souls)
+
 	var exp_bg := ColorRect.new()
 	exp_bg.color = Color(0, 0, 0, 0.45)
-	exp_bg.size = Vector2(500, 14)
-	exp_bg.position = Vector2(20, 98)
+	exp_bg.size = Vector2(500, 13)
+	exp_bg.position = Vector2(20, 108)
 	exp_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(exp_bg)
 	exp_fill = ColorRect.new()
 	exp_fill.color = COL_EXP
-	exp_fill.size = Vector2(0, 10)
-	exp_fill.position = Vector2(22, 100)
+	exp_fill.size = Vector2(0, 9)
+	exp_fill.position = Vector2(22, 110)
 	exp_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(exp_fill)
 
@@ -246,7 +278,19 @@ func _build_growth_panel() -> void:
 	var head := _new_label("성장", 20, COL_GOLD)
 	head.position = Vector2(22, 656)
 	add_child(head)
-	var y := 690.0
+
+	var prestige_btn := Button.new()
+	prestige_btn.text = "◆ 환생"
+	prestige_btn.position = Vector2(372, 652)
+	prestige_btn.size = Vector2(144, 34)
+	prestige_btn.add_theme_font_size_override("font_size", 18)
+	_style_button(prestige_btn)
+	prestige_btn.pressed.connect(func() -> void:
+		_play("button")
+		_open_prestige())
+	add_child(prestige_btn)
+
+	var y := 692.0
 	for udef in GameData.UPGRADES:
 		_make_upgrade_row(udef, y)
 		y += 50.0
@@ -363,6 +407,157 @@ func _build_settings_overlay() -> void:
 	settings_overlay.add_child(close_btn)
 
 
+# ── 환생(프레스티지) 오버레이 ────────────────────────────────────
+func _build_prestige_overlay() -> void:
+	prestige_overlay = Control.new()
+	prestige_overlay.size = GameData.SCREEN
+	prestige_overlay.visible = false
+	add_child(prestige_overlay)
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.62)
+	dim.size = GameData.SCREEN
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	prestige_overlay.add_child(dim)
+	var box := _new_panel(Rect2(50, 300, 440, 360), COL_PANEL_HI)
+	prestige_overlay.add_child(box)
+	var t := _new_label("환생", 34, Color(0.82, 0.74, 1.0))
+	t.position = Vector2(50, 326)
+	t.size = Vector2(440, 44)
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	prestige_overlay.add_child(t)
+	prestige_body = _new_label("", 20, COL_TEXT)
+	prestige_body.position = Vector2(78, 384)
+	prestige_body.size = Vector2(384, 170)
+	prestige_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	prestige_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	prestige_overlay.add_child(prestige_body)
+
+	prestige_do_btn = Button.new()
+	prestige_do_btn.position = Vector2(110, 560)
+	prestige_do_btn.size = Vector2(320, 54)
+	prestige_do_btn.add_theme_font_size_override("font_size", 22)
+	_style_button(prestige_do_btn)
+	var confirming := {"v": false}
+	prestige_do_btn.pressed.connect(func() -> void:
+		var gain := GameData.souls_for(max_stage_cleared)
+		if gain <= 0:
+			return
+		if not confirming["v"]:
+			confirming["v"] = true
+			prestige_do_btn.text = "정말 환생? 한 번 더"
+		else:
+			confirming["v"] = false
+			_play("boss_victory")
+			_do_prestige(gain)
+			prestige_overlay.visible = false)
+	prestige_overlay.add_child(prestige_do_btn)
+
+	var pclose_btn := Button.new()
+	pclose_btn.text = "닫기"
+	pclose_btn.position = Vector2(110, 622)
+	pclose_btn.size = Vector2(320, 44)
+	pclose_btn.add_theme_font_size_override("font_size", 19)
+	_style_button(pclose_btn)
+	pclose_btn.pressed.connect(func() -> void:
+		confirming["v"] = false
+		prestige_overlay.visible = false)
+	prestige_overlay.add_child(pclose_btn)
+
+
+func _open_prestige() -> void:
+	var gain := GameData.souls_for(max_stage_cleared)
+	var cur_mult := GameData.global_mult(souls)
+	var next_mult := GameData.global_mult(souls + gain)
+	var body := "보유 %s ◆ %d  (전투력·골드 x%.2f)\n\n" % [GameData.SOUL_NAME, souls, cur_mult]
+	if gain > 0:
+		body += "지금 환생하면 %s ◆ %d 획득\n→ 배수 x%.2f\n\n레벨·골드·강화·층은 초기화됩니다." % [GameData.SOUL_NAME, gain, next_mult]
+		prestige_do_btn.disabled = false
+		prestige_do_btn.text = "환생하고 ◆%d 받기" % gain
+	else:
+		body += "%d층(첫 보스)을 넘으면 환생할 수 있습니다.\n조금 더 전진해 보세요." % GameData.SOUL_MIN_STAGE
+		prestige_do_btn.disabled = true
+		prestige_do_btn.text = "아직 환생 불가"
+	prestige_body.text = body
+	prestige_overlay.visible = true
+	if kfont != null:
+		_apply_font_to(prestige_overlay)
+
+
+func _do_prestige(gain: int) -> void:
+	souls += gain
+	prestige_count += 1
+	level = 1; exp = 0; gold = 0
+	upgrades = {"atk": 0, "hp": 0, "def": 0, "crit": 0, "gold": 0}
+	stage = 1; kills = 0; max_stage_cleared = 0; region_cleared = false
+	_recompute_stats()
+	p_hp = p_max_hp
+	busy = false
+	_save()
+	_update_hud()
+	_update_growth_buttons()
+	_spawn_enemy()
+	_flash_notice("환생!  전투력 x%.2f" % p_global_mult)
+
+
+# ── 오프라인 보상 ────────────────────────────────────────────────
+func _grant_offline(s: Dictionary) -> void:
+	var last := int(s.get("last_save_unix", 0))
+	if last <= 0:
+		return
+	var elapsed: int = int(Time.get_unix_time_from_system()) - last
+	if elapsed < GameData.OFFLINE_MIN_SEC:
+		return
+	elapsed = mini(elapsed, GameData.OFFLINE_CAP_SEC)
+	var dps := float(p_atk) / p_interval * (1.0 + p_crit * (float(GameData.PLAYER_BASE["crit_mult"]) - 1.0))
+	var ehp := float(GameData.enemy_hp(stage))
+	var kills_per_sec: float = clampf(dps / maxf(1.0, ehp), 0.0, 3.0)
+	var gold_per_sec := kills_per_sec * float(_gold_gain(GameData.enemy_gold(stage)))
+	var reward := int(round(gold_per_sec * elapsed * GameData.OFFLINE_EFFICIENCY))
+	if reward <= 0:
+		return
+	gold += reward
+	_update_hud()
+	_update_growth_buttons()
+	_save()
+	var hrs := elapsed / 3600
+	var mins := (elapsed % 3600) / 60
+	var dur := ("%d시간 %d분" % [hrs, mins]) if hrs > 0 else ("%d분" % mins)
+	_show_reward("돌아오셨군요!", "자리를 비운 %s 동안\n부하들이 사냥했습니다.\n\n골드 +%s" % [dur, _fmt(reward)])
+	busy = true
+	await get_tree().create_timer(2.4).timeout
+	reward_overlay.visible = false
+	busy = false
+
+
+# ── 사운드 ───────────────────────────────────────────────────────
+func _setup_audio() -> void:
+	for name in ["attack_basic", "hit", "heavy", "level_up", "boss_appear", "boss_victory", "button"]:
+		var path := "res://assets/sfx/%s.wav" % name
+		if ResourceLoader.exists(path):
+			sfx_streams[name] = load(path)
+	for i in range(6):
+		var p := AudioStreamPlayer.new()
+		add_child(p)
+		sfx_players.append(p)
+
+const SFX_VOL := {
+	"attack_basic": -12.0, "hit": -10.0, "heavy": -6.0, "level_up": -5.0,
+	"boss_appear": -4.0, "boss_victory": -3.0, "button": -11.0,
+}
+
+func _play(name: String) -> void:
+	if name == "" or sfx_players.is_empty():
+		return
+	var stream = sfx_streams.get(name, null)
+	if stream == null:
+		return
+	var pl: AudioStreamPlayer = sfx_players[sfx_next]
+	sfx_next = (sfx_next + 1) % sfx_players.size()
+	pl.stream = stream
+	pl.volume_db = float(SFX_VOL.get(name, -8.0))
+	pl.play()
+
+
 # ── 캐릭터 생성(도형 조합) ───────────────────────────────────────
 func _make_hero() -> Node2D:
 	var root := Node2D.new()
@@ -446,6 +641,8 @@ func _spawn_enemy() -> void:
 	if kfont != null:
 		_apply_font_to(lbl_enemy_name)
 
+	if enemy["boss"]:
+		_play("boss_appear")
 	e_atk_timer = 0.0
 	_update_progress()
 
@@ -482,6 +679,7 @@ func _player_attack() -> void:
 	if crit:
 		dmg = int(round(dmg * GameData.PLAYER_BASE["crit_mult"]))
 	enemy["hp"] = int(enemy["hp"]) - dmg
+	_play("heavy" if crit else "attack_basic")
 	_hit_flash(enemy_node)
 	_float_text(Vector2(ENEMY_X, GROUND_Y - enemy["r"] * 2.0 - 6), str(dmg), COL_GOLD if crit else COL_TEXT, crit)
 	_update_enemy_hp()
@@ -512,9 +710,10 @@ func _player_down() -> void:
 
 func _enemy_die() -> void:
 	enemy["dying"] = true
-	gold += int(round(int(enemy["gold"]) * (1.0 + upgrades["gold"] * GameData.upgrade_def("gold")["per"])))
+	gold += _gold_gain(int(enemy["gold"]))
 	_gain_exp(int(enemy["exp"]))
 	var was_boss: bool = enemy["boss"]
+	_play("boss_victory" if was_boss else "")
 	if is_instance_valid(enemy_node):
 		var tw := create_tween()
 		tw.tween_property(enemy_node, "scale", Vector2(0.1, 0.1), 0.22)
@@ -576,6 +775,7 @@ func _on_upgrade_pressed(id: String) -> void:
 	var cost := GameData.upgrade_cost(udef, upgrades[id])
 	if gold < cost:
 		return
+	_play("button")
 	gold -= cost
 	upgrades[id] = int(upgrades[id]) + 1
 	_recompute_stats()
@@ -589,12 +789,19 @@ func _on_upgrade_pressed(id: String) -> void:
 
 func _recompute_stats() -> void:
 	var b: Dictionary = GameData.PLAYER_BASE
-	p_atk = int(b["atk"]) + (level - 1) * GameData.LVL_ATK + upgrades["atk"] * GameData.upgrade_def("atk")["per"]
+	p_global_mult = GameData.global_mult(souls)
+	var raw_atk: int = int(b["atk"]) + (level - 1) * GameData.LVL_ATK + upgrades["atk"] * GameData.upgrade_def("atk")["per"]
+	p_atk = int(round(raw_atk * p_global_mult))
 	p_max_hp = int(b["hp"]) + (level - 1) * GameData.LVL_HP + upgrades["hp"] * GameData.upgrade_def("hp")["per"]
 	p_def = int(b["def"]) + upgrades["def"] * GameData.upgrade_def("def")["per"]
 	p_crit = float(b["crit"]) + upgrades["crit"] * GameData.upgrade_def("crit")["per"]
 	p_interval = float(b["atk_interval"])
 	p_hp = mini(p_hp, p_max_hp)
+
+
+func _gold_gain(base: int) -> int:
+	var bonus: float = 1.0 + int(upgrades["gold"]) * float(GameData.upgrade_def("gold")["per"])
+	return int(round(base * bonus * p_global_mult))
 
 
 func _gain_exp(amount: int) -> void:
@@ -604,6 +811,7 @@ func _gain_exp(amount: int) -> void:
 		level += 1
 		_recompute_stats()
 		p_hp = p_max_hp
+		_play("level_up")
 		_flash_notice("레벨 업!  Lv %d" % level)
 
 
@@ -615,6 +823,10 @@ func _update_hud() -> void:
 	lbl_stage.text = depth
 	var need := GameData.exp_to_next(level)
 	exp_fill.size.x = 500.0 * clampf(float(exp) / float(need), 0.0, 1.0)
+	if souls > 0 or prestige_count > 0:
+		lbl_souls.text = "%s ◆ %d   전투력 x%.2f" % [GameData.SOUL_NAME, souls, p_global_mult]
+	else:
+		lbl_souls.text = ""
 	_update_hero_hp()
 
 
@@ -719,6 +931,7 @@ func _state_dict() -> Dictionary:
 		"level": level, "exp": exp, "gold": gold, "upgrades": upgrades,
 		"stage": stage, "kills": kills,
 		"max_stage_cleared": max_stage_cleared, "region_cleared": region_cleared,
+		"souls": souls, "prestige_count": prestige_count,
 	}
 
 
@@ -736,6 +949,9 @@ func _apply_save(s: Dictionary) -> void:
 	kills = s["kills"]
 	max_stage_cleared = s["max_stage_cleared"]
 	region_cleared = s["region_cleared"]
+	souls = int(s.get("souls", 0))
+	prestige_count = int(s.get("prestige_count", 0))
+	last_save_unix = int(s.get("last_save_unix", 0))
 
 
 func _reset_progress() -> void:
@@ -743,6 +959,7 @@ func _reset_progress() -> void:
 	level = 1; exp = 0; gold = 0
 	upgrades = {"atk": 0, "hp": 0, "def": 0, "crit": 0, "gold": 0}
 	stage = 1; kills = 0; max_stage_cleared = 0; region_cleared = false
+	souls = 0; prestige_count = 0
 	_recompute_stats()
 	p_hp = p_max_hp
 	busy = false

@@ -16,6 +16,9 @@ static func save(state: Dictionary) -> void:
 		"kills": int(state.get("kills", 0)),
 		"max_stage_cleared": int(state.get("max_stage_cleared", 0)),
 		"region_cleared": bool(state.get("region_cleared", false)),
+		"souls": int(state.get("souls", 0)),
+		"prestige_count": int(state.get("prestige_count", 0)),
+		"last_save_unix": int(Time.get_unix_time_from_system()),
 	}
 	var f := FileAccess.open(PATH, FileAccess.WRITE)
 	if f == null:
@@ -51,6 +54,9 @@ static func load_state() -> Dictionary:
 		"kills": maxi(0, int(parsed.get("kills", 0))),
 		"max_stage_cleared": maxi(0, int(parsed.get("max_stage_cleared", 0))),
 		"region_cleared": bool(parsed.get("region_cleared", false)),
+		"souls": maxi(0, int(parsed.get("souls", 0))),
+		"prestige_count": maxi(0, int(parsed.get("prestige_count", 0))),
+		"last_save_unix": int(parsed.get("last_save_unix", 0)),
 	}
 
 static func clear() -> void:

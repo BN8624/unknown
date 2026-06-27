@@ -108,3 +108,23 @@ static func upgrade_def(id: String) -> Dictionary:
 		if u["id"] == id:
 			return u
 	return {}
+
+# ── 환생(프레스티지) ─────────────────────────────────────────────
+const SOUL_NAME := "균열석"
+const SOUL_MIN_STAGE := 5        # 첫 보스(5층) 클리어부터 환생 가능
+const SOUL_PER_MULT := 0.04      # 균열석 1개당 전투력·골드 +4%
+
+# 지금 환생하면 얻을 균열석. 도달한 최고 스테이지가 높을수록 많이.
+static func souls_for(max_stage_cleared: int) -> int:
+	if max_stage_cleared < SOUL_MIN_STAGE:
+		return 0
+	return int(floor(pow(float(max_stage_cleared), 1.55) * 0.5))
+
+# 보유 균열석으로 인한 영구 배수(전투력·골드에 곱).
+static func global_mult(souls: int) -> float:
+	return 1.0 + souls * SOUL_PER_MULT
+
+# ── 오프라인 보상 ────────────────────────────────────────────────
+const OFFLINE_CAP_SEC := 8 * 3600   # 최대 8시간 정산
+const OFFLINE_EFFICIENCY := 0.6     # 활동 대비 효율
+const OFFLINE_MIN_SEC := 60         # 1분 미만은 정산·표시 안 함
