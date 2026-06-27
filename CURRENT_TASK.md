@@ -1,8 +1,7 @@
 # CURRENT TASK
 
 - Task: TASK 019 — 전투 효과·사운드 적용
-- GitHub Issue: #6 (정본, 본문) — https://github.com/BN8624/unknown/issues/6
-  - ⚠ 이슈 제목은 "TASK 020 외형 승급"으로 잘못 붙음. **본문이 TASK 019 사운드**이며 그게 정본. (제목 정정은 사용자 확인 대기.)
+- GitHub Issue: #6 (정본, 제목·본문 모두 TASK 019) — https://github.com/BN8624/unknown/issues/6
 - 상태: **진행 중.** 음원 합성·AudioHooks 재생 연결 단계.
 - 정본: GitHub Issue #6 본문 / 음원 기준은 #6 댓글(id 4815309071)
 
