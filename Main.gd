@@ -553,13 +553,13 @@ func _build_background() -> void:
 	bg_layer.texture = _load_gen("bg_dungeon")
 	bg_layer.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	bg_layer.size = GameData.SCREEN
-	bg_layer.modulate = Color(0.78, 0.76, 0.78)   # 살짝만 톤다운(너무 어둡지 않게)
+	bg_layer.modulate = Color(0.96, 0.96, 0.97)   # 밝은 SD 배경 → 거의 풀 밝기
 	bg_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg_layer)
 
-	# 배경 위 옅은 스크림(채도만 살짝 눌러 캐릭터 분리)
+	# 배경 위 아주 옅은 스크림(캐릭터 발치 대비만)
 	var scrim := ColorRect.new()
-	scrim.color = Color(0.06, 0.06, 0.08, 0.14)
+	scrim.color = Color(0.0, 0.0, 0.05, 0.06)
 	scrim.size = GameData.SCREEN
 	scrim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(scrim)
@@ -1460,6 +1460,28 @@ void fragment() {
 	return _outline_mat
 
 
+# 캐릭터 스프라이트 통합 로더: SD 일러스트(assets/sd, 리니어·외곽선X) 우선, 없으면 픽셀(assets/sprites, 니어레스트·외곽선).
+func _char_sprite(name: String, disp_h: float, tint := Color.WHITE) -> Sprite2D:
+	var sd := "res://assets/sd/%s.png" % name
+	if ResourceLoader.exists(sd):
+		return _illus_sprite(sd, disp_h, tint)
+	return _pixel_sprite(name, disp_h, tint)
+
+
+# SD 일러스트 스프라이트(부드러운 고해상). 발 바닥 = y0 정렬.
+func _illus_sprite(path: String, disp_h: float, tint := Color.WHITE) -> Sprite2D:
+	var s := Sprite2D.new()
+	s.texture = load(path)
+	s.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	s.modulate = tint
+	var th: float = maxf(1.0, s.texture.get_height())
+	var sc := disp_h / th
+	s.scale = Vector2(sc, sc)
+	s.centered = false
+	s.position = Vector2(-s.texture.get_width() * sc * 0.5, -s.texture.get_height() * sc)
+	return s
+
+
 func _pixel_sprite(name: String, disp_h: float, tint := Color.WHITE) -> Sprite2D:
 	var path := "res://assets/sprites/%s.png" % name
 	if not ResourceLoader.exists(path):
@@ -1484,7 +1506,9 @@ func _make_hero() -> Node2D:
 	var back := _light(Vector2(0, -56), 1.5, Color(0.85, 0.88, 1.0, 0.34))
 	if back.texture != null:
 		root.add_child(back)
-	var spr := _pixel_sprite(_hero_skin_name(), 104.0)
+	var hkey := _hero_skin_name()
+	var hdisp := 150.0 if ResourceLoader.exists("res://assets/sd/%s.png" % hkey) else 104.0
+	var spr := _char_sprite(hkey, hdisp)
 	if spr != null:
 		hero_sprite = spr
 		root.add_child(spr)
@@ -1499,16 +1523,16 @@ func _hero_skin_name() -> String:
 
 
 func _apply_hero_skin() -> void:
-	if hero_sprite == null or not is_instance_valid(hero_sprite):
+	if hero_sprite == null or not is_instance_valid(hero) or not is_instance_valid(hero_sprite):
 		return
-	var path := "res://assets/sprites/%s.png" % _hero_skin_name()
-	if not ResourceLoader.exists(path):
+	var hkey := _hero_skin_name()
+	var hdisp := 150.0 if ResourceLoader.exists("res://assets/sd/%s.png" % hkey) else 104.0
+	var ns := _char_sprite(hkey, hdisp)
+	if ns == null:
 		return
-	var tex: Texture2D = load(path)
-	hero_sprite.texture = tex
-	var sc := 104.0 / maxf(1.0, tex.get_height())
-	hero_sprite.scale = Vector2(sc, sc)
-	hero_sprite.position = Vector2(-tex.get_width() * sc * 0.5, -tex.get_height() * sc)
+	hero_sprite.queue_free()   # 옛 스프라이트 교체(필터·셰이더 다를 수 있어 노드 재생성)
+	hero_sprite = ns
+	hero.add_child(ns)
 
 
 func _make_hero_shapes(root: Node2D) -> Node2D:
@@ -1559,8 +1583,12 @@ func _make_enemy(e: Dictionary) -> Node2D:
 		var ba := _light(Vector2(0, -r), r / 80.0, Color(col.r, col.g * 0.5, col.b * 0.5, 0.34))
 		if ba.texture != null:
 			root.add_child(ba)
-	# Kenney CC0 픽셀 스프라이트 우선, 없으면 절차적 도형
-	var spr := _pixel_sprite(String(e.get("sprite", "")), r * 2.7, e.get("tint", Color.WHITE))
+	# SD 일러스트(있으면) → 픽셀 → 도형. SD는 더 크게 표시.
+	var ekey := String(e.get("sprite", ""))
+	var has_sd := ResourceLoader.exists("res://assets/sd/%s.png" % ekey)
+	var edisp := (r * 3.8) if has_sd else (r * 2.7)
+	var etint: Color = Color.WHITE if has_sd else e.get("tint", Color.WHITE)
+	var spr := _char_sprite(ekey, edisp, etint)
 	if spr != null:
 		root.add_child(spr)
 		return root

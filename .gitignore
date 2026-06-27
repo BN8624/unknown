@@ -18,3 +18,6 @@ assets/ui/*_chroma_source.png
 assets/ui/*_2x.png
 assets/ui/*_preview.png
 assets/ui/*_sheet.png
+
+# 아트 납품 원본 폴더(대용량 마스터·소스) — 사용본만 assets/sd·ui에 복사
+assets/art_order_test_delivery/
