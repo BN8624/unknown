@@ -548,19 +548,27 @@ func _build_background() -> void:
 	bg_layer.texture = _load_gen("bg_dungeon")
 	bg_layer.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	bg_layer.size = GameData.SCREEN
+	bg_layer.modulate = Color(0.56, 0.55, 0.58)   # 배경 톤다운(보라 과함 완화 → 캐릭터가 살아남)
 	bg_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg_layer)
 
-	# 벽 횃불 광원(가산 글로우, 흔들림)
+	# 배경 위 어두운 스크림(채도·밝기 더 눌러 깊이감)
+	var scrim := ColorRect.new()
+	scrim.color = Color(0.05, 0.05, 0.07, 0.32)
+	scrim.size = GameData.SCREEN
+	scrim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(scrim)
+
+	# 벽 횃불 광원(따뜻한 주황, 흔들림)
 	for tx in [120.0, 424.0]:
-		var glow := _light(Vector2(tx, 318), 1.15, Color(1.0, 0.55, 0.22, 0.5))
+		var glow := _light(Vector2(tx, 318), 1.1, Color(1.0, 0.58, 0.25, 0.45))
 		if glow.texture != null:
 			add_child(glow)
 			var tw := create_tween().set_loops()
-			tw.tween_property(glow, "modulate:a", 0.34, 0.9).set_trans(Tween.TRANS_SINE)
-			tw.tween_property(glow, "modulate:a", 0.58, 1.1).set_trans(Tween.TRANS_SINE)
-	# 바닥 전투 영역 은은한 광원(캐릭터가 어둠에 묻히지 않게)
-	var floor_light := _light(Vector2(GameData.SCREEN.x * 0.5, GROUND_Y - 40), 2.4, Color(0.5, 0.45, 0.7, 0.18))
+			tw.tween_property(glow, "modulate:a", 0.30, 0.9).set_trans(Tween.TRANS_SINE)
+			tw.tween_property(glow, "modulate:a", 0.52, 1.1).set_trans(Tween.TRANS_SINE)
+	# 바닥 전투 영역 따뜻한 광원(보라 제거 → 횃불빛 톤, 캐릭터 접지·가독)
+	var floor_light := _light(Vector2(GameData.SCREEN.x * 0.5, GROUND_Y - 30), 2.2, Color(0.95, 0.62, 0.34, 0.15))
 	if floor_light.texture != null:
 		add_child(floor_light)
 
