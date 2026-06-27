@@ -251,6 +251,22 @@ var shot_phase := 0
 var shot_t := 0.0
 const SHOT_DIR := "C:/Users/USER/AppData/Local/Temp/claude/C--Users-USER-unknown/ba7c179b-0677-4fb1-ad24-6193890d8154/scratchpad"
 
+# ── 오디오 재생 (TASK 019) ───────────────────────────────────────
+# AudioHooks가 이벤트→SFX 이름을 정하면 이 풀이 실제로 재생한다. 검증 모드에선 미등록.
+const SFX_NAMES := [
+	"attack_basic", "hit", "heavy", "flurry", "counter",
+	"level_up", "elite_appear", "boss_appear", "boss_charge", "boss_victory", "button",
+]
+# 모바일에서 거슬리지 않게 SFX별 음량(dB). 반복되는 공격·피격·버튼은 더 작게.
+const SFX_VOL := {
+	"attack_basic": -9.0, "hit": -7.0, "heavy": -4.0, "flurry": -8.0, "counter": -5.0,
+	"level_up": -5.0, "elite_appear": -5.0, "boss_appear": -3.0, "boss_charge": -6.0,
+	"boss_victory": -3.0, "button": -12.0,
+}
+var sfx_streams := {}            # name → AudioStream
+var sfx_players: Array = []      # AudioStreamPlayer 풀(겹침 재생용)
+var sfx_next := 0                # 라운드로빈 인덱스
+
 
 func _ready() -> void:
 	verify_mode = "--verify" in OS.get_cmdline_user_args()
@@ -269,6 +285,8 @@ func _ready() -> void:
 	_apply_korean_font()
 	_ignore_decorative_mouse()   # 상태·경험치·알림 등 비상호작용 표시가 버튼 터치를 막지 않게
 	_build_merc()
+	if not verify_mode:
+		_setup_audio()   # 검증 모드는 오디오 풀 미등록(계측만, 음원 로드 없음)
 	# 저장 데이터 불러오기 → UI 갱신 후 첫 적 생성 (검증 모드는 실제 저장을 건드리지 않음)
 	var loaded := false
 	if not verify_mode:
@@ -278,6 +296,37 @@ func _ready() -> void:
 		Engine.time_scale = 8.0  # 검증 시간 단축 (수치는 그대로, 시간만 가속)
 	if not verify_mode and loaded:
 		_show_notice("저장 데이터 불러옴", 1.0)
+
+
+# 오디오 풀 준비: 11종 음원을 로드하고 겹침 재생용 플레이어 풀을 만든 뒤 AudioHooks에 sink 등록.
+# 음원 로드 실패는 경고만 남기고 무시한다(게임 진행·전투 로직 유지).
+func _setup_audio() -> void:
+	for name in SFX_NAMES:
+		var path := "res://assets/sfx/%s.wav" % name
+		if ResourceLoader.exists(path):
+			var s = load(path)
+			if s != null:
+				sfx_streams[name] = s
+			else:
+				push_warning("AudioHooks: 음원 로드 실패 %s" % path)
+		else:
+			push_warning("AudioHooks: 음원 없음 %s" % path)
+	for i in range(8):   # 빠른 연속 공격이 서로를 끊지 않게 여러 플레이어
+		var p := AudioStreamPlayer.new()
+		add_child(p)
+		sfx_players.append(p)
+	AudioHooks.set_sink(self)
+
+# AudioHooks가 호출하는 실제 재생 진입점. 라운드로빈 플레이어로 겹침 재생, 누락 음원은 무시.
+func play_sfx(name: String) -> void:
+	var stream = sfx_streams.get(name, null)
+	if stream == null or sfx_players.is_empty():
+		return
+	var p: AudioStreamPlayer = sfx_players[sfx_next]
+	sfx_next = (sfx_next + 1) % sfx_players.size()
+	p.stream = stream
+	p.volume_db = float(SFX_VOL.get(name, -6.0))
+	p.play()
 
 
 func _process(delta: float) -> void:

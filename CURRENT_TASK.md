@@ -1,41 +1,40 @@
 # CURRENT TASK
 
-- Task: TASK 018 — 모바일 UI 재배치
-- GitHub Issue: #5 (정본) — https://github.com/BN8624/unknown/issues/5
-- 상태: **완료·커밋·푸시·Issue #5 닫음.** 다음 작업은 TASK 019(사운드).
-- 정본: GitHub Issue #5(닫힘) / 화풍은 ART_STYLE_GUIDE.md
-- ⚠ 다음 세션: TASK 019 새 Issue 작성 후 이 파일을 덮어쓸 것.
+- Task: TASK 019 — 전투 효과·사운드 적용
+- GitHub Issue: #6 (정본, 본문) — https://github.com/BN8624/unknown/issues/6
+  - ⚠ 이슈 제목은 "TASK 020 외형 승급"으로 잘못 붙음. **본문이 TASK 019 사운드**이며 그게 정본. (제목 정정은 사용자 확인 대기.)
+- 상태: **진행 중.** 음원 합성·AudioHooks 재생 연결 단계.
+- 정본: GitHub Issue #6 본문 / 음원 기준은 #6 댓글(id 4815309071)
 
-> GPT에게 Issue 줄 때 평문 URL은 CLAUDE.md 참조(본문/댓글/특정댓글/raw).
+> 음원 우선순위(이슈 댓글): ①직접 생성 wav/ogg ②Kenney CC0 ③OpenGameArt CC0 ④Freesound CC0. CC-BY·불명·추출 금지. 출처는 `AUDIO_CREDITS.md`에 기록.
 
 ---
 
-## 완료한 것 (미커밋, working tree에 있음)
+## 목표 (Issue #6 본문)
 
-상단 UI를 게임 화면처럼 정리. `Battle.gd`만 수정(전투·수치·저장·아트·등장순서 불변).
-- 줄1 (y10): `status_label` "Lv N   골드 G" (fs26) + `trait_button`(우, 388,8 / 136×46)
-- 줄2 (y46): EXP 바 풀폭(508×16)
-- 줄3 (y70): `boss_progress_label` "빚 … 명성 … · 보스진행"(fs19)
-- 줄4 (y96): `trait_status_label` 특성 포인트(fs18)
-- **제거**: 용병HP·공격·방어·적HP 상단 텍스트 → HP 바·강화 버튼·적 이름표에 이미 표시(정보 손실 없음).
-- 보스 UI(168~272)는 보스전만, 상단(0~120)과 비겹침 — 변경 안 함.
-- 함수: `_build_status_label`·`_build_exp_bar`·`_build_boss_progress_label`·`_build_trait_ui`(위치), `_update_status`("Lv N 골드 G", exp_fill 504폭), `_update_boss_progress`(원래 형식 유지 — TASK_010 검증 통과 위해 골드 안 넣음).
+전투 이벤트 11종이 눈·귀로 구분되게 한다(화려함 아님, 최소 식별).
+기본공격·피격·강타·연격·반격·레벨업·엘리트등장·보스등장·보스강공격준비·보스승리·버튼.
 
-## 검증 (완료분)
-- `--verify` **ALL PASS TASK_001~014**(종료 0). (주의: `_verify_debt_fame`가 `boss_progress_label.text`를 고정 비교 → 그 형식 바꾸면 FAIL. 골드는 `status_label`에 넣어 회피함.)
-- `--shot` 9장(기본·레벨업·고블린·방패병·오우거·브루노·방어태세·자세붕괴·강화불가) 확인. 07=상태 방어태세(청색), 08=자세붕괴(무방비), 09=골드0 강화버튼 비활성화. Web 빌드 종료 0, 서버 8443 200.
+**불변**: 전투 수치, 적 등장 순서, 저장 형식, UI 배치, 캐릭터 아트.
 
-## 결과 (완료)
-1. 상단 배치 + 겹침 수정 → 아이폰 확인 완료.
-2. 보스 상태 shot 3장 추가(07 방어태세·08 자세붕괴·09 강화불가).
-3. 별도 `[상세]` 패널은 최소변경 원칙상 미생성(강화 버튼이 공격/체력/방어 현재값 표시로 대체).
-4. 커밋 `10d14ec`·`560f0d2` 푸시, Issue #5 결과 댓글·닫음.
+## 결정
+
+- 음원 11종 전부 **직접 합성 CC0**(우선순위 1순위). 합성 스크립트 `scripts/audio/gen_sfx.py`, 출력 `assets/sfx/*.wav`.
+- 기존 `AudioHooks`(이벤트 19종 카운트, 음원 없음)는 **카운트 동작 유지**(--verify 의존). 그 뒤에 실제 재생 연결 — 헤드리스/verify에선 플레이어 미등록이라 카운트만, 라이브/웹에서만 실제 소리.
+- 19개 이벤트 → 11개 SFX 매핑(예: merc_basic_attack·enemy_basic_attack→attack_basic).
+
+## 체크리스트
+
+- [x] `scripts/audio/gen_sfx.py`로 11종 wav 생성 → `assets/sfx/`(총 ~340KB)
+- [x] `AUDIO_CREDITS.md` 작성(11종 전부 자체 합성 CC0)
+- [x] `AudioHooks.gd`에 SFX_MAP(19→11) + 재생 sink 등록 경로 추가(카운트 동작 보존)
+- [x] `Battle.gd`에서 AudioStreamPlayer 풀 8개 생성·등록(verify 제외), `play_sfx` 진입점
+- [x] 이벤트별 시각 효과는 기존 활용(플래시·피해숫자·러지·레벨업 확대·보스 강조·자세붕괴 흔들림) — 신규 추가 없음(최소 변경)
+- [x] `--verify` ALL PASS TASK_001~014, SCRIPT ERROR 0
+- [x] `--shot` 9장 캡처(오디오 로드가 캡처 안 깸 확인)
+- [x] Web 빌드 재내보내기(음원 포함)
+- [ ] 아이폰 첫 터치 후 재생 확인(사용자)
+- [ ] Issue #6 보고
 
 ## 다음 TASK
-019 사운드 — `AudioHooks`(19개 이벤트 경계, 음원 없음) 뒤에 실제 음원 연결. 새 Issue 작성 후 이 파일 덮어쓰기.
-
-## 아이폰
-`https://node.tail3e9e21.ts.net:8443/?v=18`
-
-## 이후 TASK
-019 사운드(필수 9종, AudioHooks 뒤 실제 음원) → 020 외형 승급(브루노 처치 후 철검+가죽, boss_defeated 연동) → 021 슬라이스 전체 아이폰 검증.
+020 외형 승급(브루노 처치 후 철검+가죽).
