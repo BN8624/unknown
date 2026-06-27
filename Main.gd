@@ -81,6 +81,7 @@ var save_timer := 0.0
 var sfx_streams := {}
 var sfx_players: Array = []
 var sfx_next := 0
+var sound_on := true
 
 
 func _ready() -> void:
@@ -544,18 +545,31 @@ func _build_settings_overlay() -> void:
 	dim.size = GameData.SCREEN
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	settings_overlay.add_child(dim)
-	var box := _new_panel(Rect2(70, 360, 400, 260), COL_PANEL_HI)
+	var box := _new_panel(Rect2(70, 330, 400, 330), COL_PANEL_HI)
 	settings_overlay.add_child(box)
 	var t := _new_label("설정", 30, COL_GOLD)
-	t.position = Vector2(70, 384)
+	t.position = Vector2(70, 352)
 	t.size = Vector2(400, 40)
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	settings_overlay.add_child(t)
 
+	var sound_btn := Button.new()
+	sound_btn.text = "사운드: 켜짐" if sound_on else "사운드: 꺼짐"
+	sound_btn.position = Vector2(120, 408)
+	sound_btn.size = Vector2(300, 52)
+	sound_btn.add_theme_font_size_override("font_size", 21)
+	_style_button(sound_btn)
+	sound_btn.pressed.connect(func() -> void:
+		_set_sound(not sound_on)
+		sound_btn.text = "사운드: 켜짐" if sound_on else "사운드: 꺼짐"
+		_play("button")
+		_save())
+	settings_overlay.add_child(sound_btn)
+
 	var reset_btn := Button.new()
 	reset_btn.text = "진행 초기화"
-	reset_btn.position = Vector2(120, 450)
-	reset_btn.size = Vector2(300, 56)
+	reset_btn.position = Vector2(120, 476)
+	reset_btn.size = Vector2(300, 54)
 	reset_btn.add_theme_font_size_override("font_size", 22)
 	_style_button(reset_btn)
 	var confirming := {"v": false}
@@ -572,7 +586,7 @@ func _build_settings_overlay() -> void:
 
 	var close_btn := Button.new()
 	close_btn.text = "닫기"
-	close_btn.position = Vector2(120, 524)
+	close_btn.position = Vector2(120, 548)
 	close_btn.size = Vector2(300, 50)
 	close_btn.add_theme_font_size_override("font_size", 20)
 	_style_button(close_btn)
@@ -637,7 +651,7 @@ func _build_prestige_overlay() -> void:
 			prestige_do_btn.text = "정말 환생? 한 번 더 누르기"
 		else:
 			prestige_confirming = false
-			_play("boss_victory")
+			_play("prestige")
 			_do_prestige(gain)
 			prestige_overlay.visible = false)
 	prestige_overlay.add_child(prestige_do_btn)
@@ -769,23 +783,39 @@ func _grant_offline(s: Dictionary) -> void:
 
 
 # ── 사운드 ───────────────────────────────────────────────────────
+var bgm_player: AudioStreamPlayer
+
 func _setup_audio() -> void:
-	for name in ["attack_basic", "hit", "heavy", "level_up", "boss_appear", "boss_victory", "button"]:
-		var path := "res://assets/sfx/%s.wav" % name
+	for name in ["slash", "hit", "crit", "level_up", "boss_appear", "boss_victory", "button", "prestige"]:
+		var path := "res://assets/gen_sfx/%s.wav" % name
 		if ResourceLoader.exists(path):
 			sfx_streams[name] = load(path)
 	for i in range(6):
 		var p := AudioStreamPlayer.new()
 		add_child(p)
 		sfx_players.append(p)
+	# 배경음(루프). 첫 사용자 입력 후 재생되도록 _ready 끝에서 시작.
+	var bgm_path := "res://assets/gen_bgm/theme.wav"
+	if ResourceLoader.exists(bgm_path):
+		var s = load(bgm_path)
+		if s is AudioStreamWAV:
+			s.loop_mode = AudioStreamWAV.LOOP_FORWARD
+			s.loop_begin = 0
+			s.loop_end = s.data.size() / 2   # 16-bit 모노 샘플 수
+		bgm_player = AudioStreamPlayer.new()
+		bgm_player.stream = s
+		bgm_player.volume_db = -16.0
+		add_child(bgm_player)
+		if sound_on:
+			bgm_player.play()
 
 const SFX_VOL := {
-	"attack_basic": -12.0, "hit": -10.0, "heavy": -6.0, "level_up": -5.0,
-	"boss_appear": -4.0, "boss_victory": -3.0, "button": -11.0,
+	"slash": -13.0, "hit": -11.0, "crit": -7.0, "level_up": -6.0,
+	"boss_appear": -5.0, "boss_victory": -4.0, "button": -12.0, "prestige": -6.0,
 }
 
 func _play(name: String) -> void:
-	if name == "" or sfx_players.is_empty():
+	if name == "" or not sound_on or sfx_players.is_empty():
 		return
 	var stream = sfx_streams.get(name, null)
 	if stream == null:
@@ -795,6 +825,15 @@ func _play(name: String) -> void:
 	pl.stream = stream
 	pl.volume_db = float(SFX_VOL.get(name, -8.0))
 	pl.play()
+
+
+func _set_sound(on: bool) -> void:
+	sound_on = on
+	if bgm_player != null:
+		if on:
+			bgm_player.play()
+		else:
+			bgm_player.stop()
 
 
 # ── 캐릭터 생성(도형 조합) ───────────────────────────────────────
@@ -960,7 +999,7 @@ func _player_attack() -> void:
 	if crit:
 		dmg = int(round(dmg * GameData.PLAYER_BASE["crit_mult"]))
 	enemy["hp"] = int(enemy["hp"]) - dmg
-	_play("heavy" if crit else "attack_basic")
+	_play("crit" if crit else "slash")
 	_hit_flash(enemy_node)
 	var hitpos := Vector2(ENEMY_X - enemy["r"] * 0.4, GROUND_Y - enemy["r"])
 	_spawn_hit_burst(hitpos, Color(1.0, 0.85, 0.55, 0.9) if crit else Color(0.9, 0.92, 1.0, 0.8), 10 if crit else 5)
@@ -978,6 +1017,7 @@ func _enemy_attack() -> void:
 	tw.tween_property(enemy_node, "position:x", ENEMY_X, 0.12)
 	var dmg: int = maxi(1, int(enemy["atk"]) - p_def)
 	p_hp -= dmg
+	_play("hit")
 	_hit_flash(hero)
 	_float_text(Vector2(HERO_X, GROUND_Y - 150), str(dmg), Color(1.0, 0.5, 0.5), false)
 	_update_hero_hp()
@@ -1226,6 +1266,7 @@ func _state_dict() -> Dictionary:
 		"stage": stage, "kills": kills,
 		"max_stage_cleared": max_stage_cleared, "region_cleared": region_cleared,
 		"souls": souls, "prestige_count": prestige_count, "soul_upgrades": soul_upgrades,
+		"sound_on": sound_on,
 	}
 
 
@@ -1246,6 +1287,7 @@ func _apply_save(s: Dictionary) -> void:
 	souls = int(s.get("souls", 0))
 	prestige_count = int(s.get("prestige_count", 0))
 	last_save_unix = int(s.get("last_save_unix", 0))
+	sound_on = bool(s.get("sound_on", true))
 	var su = s.get("soul_upgrades", {})
 	for id in soul_upgrades.keys():
 		soul_upgrades[id] = int(su.get(id, 0)) if typeof(su) == TYPE_DICTIONARY else 0
