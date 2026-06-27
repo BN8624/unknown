@@ -87,6 +87,7 @@ func _ready() -> void:
 	_shot_mode = "--shot" in OS.get_cmdline_user_args()
 	_build_background()
 	_build_battle_area()
+	_build_vignette()
 	_build_hud()
 	_build_growth_panel()
 	_build_notice()
@@ -158,7 +159,27 @@ func _update_sky() -> void:
 	sky_grad.set_color(1, SKY_TONES[tier % SKY_TONES.size()])
 
 
+var rift_glow: Sprite2D
+var mtn_far: Node2D
+var mtn_near: Node2D
+var fog_layer: Sprite2D
+var ground_rect: ColorRect
+
+func _load_gen(name: String) -> Texture2D:
+	var path := "res://assets/gen/%s.png" % name
+	if ResourceLoader.exists(path):
+		return load(path)
+	return null
+
+func _gen_sprite(name: String, pos: Vector2, modulate := Color.WHITE) -> Sprite2D:
+	var s := Sprite2D.new()
+	s.texture = _load_gen(name)
+	s.position = pos
+	s.modulate = modulate
+	return s
+
 func _build_background() -> void:
+	# 1) 하늘 그라데이션
 	var grad := Gradient.new()
 	grad.set_color(0, COL_BG_TOP)
 	grad.set_color(1, COL_BG_BOT)
@@ -175,27 +196,162 @@ func _build_background() -> void:
 	sky.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(sky)
 
-	# 멀리 보이는 균열(장식): 가운데 위로 뻗는 옅은 보라 빛기둥
-	for i in range(3):
-		var rift := ColorRect.new()
-		rift.color = Color(0.45, 0.35, 0.75, 0.06 + i * 0.03)
-		rift.size = Vector2(60 - i * 16, GROUND_Y - 120)
-		rift.position = Vector2(GameData.SCREEN.x * 0.5 - rift.size.x * 0.5, 120)
-		rift.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		add_child(rift)
+	# 2) 별(은은한 반짝임)
+	var stars_tex := _load_gen("stars")
+	if stars_tex != null:
+		var st := TextureRect.new()
+		st.texture = stars_tex
+		st.position = Vector2(0, 0)
+		st.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(st)
+		var tw := create_tween().set_loops()
+		tw.tween_property(st, "modulate", Color(1, 1, 1, 0.55), 2.2).set_trans(Tween.TRANS_SINE)
+		tw.tween_property(st, "modulate", Color(1, 1, 1, 1.0), 2.2).set_trans(Tween.TRANS_SINE)
 
-	var ground := ColorRect.new()
-	ground.color = COL_GROUND
-	ground.size = Vector2(GameData.SCREEN.x, 760 - GROUND_Y)
-	ground.position = Vector2(0, GROUND_Y)
-	ground.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(ground)
-	var edge := ColorRect.new()       # 지면 윗선 강조
-	edge.color = Color(0.30, 0.24, 0.17)
-	edge.size = Vector2(GameData.SCREEN.x, 4)
+	# 3) 먼 능선 실루엣(2겹 시차 드리프트) — 지평선에 낮게 깔리는 언덕
+	mtn_far = _make_mountains(Color(0.11, 0.10, 0.19), 30.0, 60.0, 9)
+	mtn_far.position = Vector2(0, 0)
+	add_child(mtn_far)
+	_drift(mtn_far, 46.0)
+	mtn_near = _make_mountains(Color(0.15, 0.12, 0.22), 64.0, 46.0, 7)
+	mtn_near.position = Vector2(0, 0)
+	add_child(mtn_near)
+	_drift(mtn_near, 28.0)
+
+	# 4) 균열 빛기둥(글로우, 맥동)
+	rift_glow = _gen_sprite("glow", Vector2(GameData.SCREEN.x * 0.5, 300), Color(0.55, 0.42, 0.95, 0.5))
+	if rift_glow.texture != null:
+		rift_glow.scale = Vector2(1.4, 3.2)
+		add_child(rift_glow)
+		var tw := create_tween().set_loops()
+		tw.tween_property(rift_glow, "modulate:a", 0.28, 1.6).set_trans(Tween.TRANS_SINE)
+		tw.tween_property(rift_glow, "modulate:a", 0.55, 1.6).set_trans(Tween.TRANS_SINE)
+
+	# 5) 지면(텍스처)
+	ground_rect = ColorRect.new()
+	ground_rect.color = COL_GROUND
+	ground_rect.size = Vector2(GameData.SCREEN.x, 760 - GROUND_Y)
+	ground_rect.position = Vector2(0, GROUND_Y)
+	ground_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(ground_rect)
+	var gtex := _load_gen("ground")
+	if gtex != null:
+		var gr := TextureRect.new()
+		gr.texture = gtex
+		gr.position = Vector2(0, GROUND_Y)
+		gr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(gr)
+	var edge := ColorRect.new()
+	edge.color = Color(0.42, 0.34, 0.22)
+	edge.size = Vector2(GameData.SCREEN.x, 3)
 	edge.position = Vector2(0, GROUND_Y)
 	edge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(edge)
+
+	# 6) 안개 띠(수평 드리프트)
+	var fog_tex := _load_gen("fog")
+	if fog_tex != null:
+		fog_layer = Sprite2D.new()
+		fog_layer.texture = fog_tex
+		fog_layer.centered = false
+		fog_layer.position = Vector2(0, GROUND_Y - 150)
+		fog_layer.modulate = Color(0.7, 0.66, 0.85, 0.5)
+		add_child(fog_layer)
+		var tw := create_tween().set_loops()
+		tw.tween_property(fog_layer, "position:x", -30.0, 6.0).set_trans(Tween.TRANS_SINE)
+		tw.tween_property(fog_layer, "position:x", 0.0, 6.0).set_trans(Tween.TRANS_SINE)
+
+	# 7) 떠오르는 잔불(앰비언트 파티클)
+	_build_ambient_embers()
+
+
+# 톱니 능선 폴리곤 묶음을 만든다(가로로 2배 폭, 드리프트로 무한 반복).
+func _make_mountains(col: Color, base_y: float, height: float, peaks: int) -> Node2D:
+	var root := Node2D.new()
+	var w := GameData.SCREEN.x
+	for rep in range(2):
+		var off := rep * w
+		var pts := PackedVector2Array()
+		pts.append(Vector2(off, GROUND_Y))
+		var step := w / peaks
+		for i in range(peaks + 1):
+			var px := off + i * step
+			var ph := base_y + (sin(i * 1.7 + rep) * 0.5 + 0.5) * height
+			pts.append(Vector2(px, GROUND_Y - ph))
+		pts.append(Vector2(off + w, GROUND_Y))
+		var poly := Polygon2D.new()
+		poly.polygon = pts
+		poly.color = col
+		root.add_child(poly)
+	return root
+
+
+func _drift(node: Node2D, period: float) -> void:
+	var w := GameData.SCREEN.x
+	node.position.x = 0
+	var tw := create_tween().set_loops()
+	tw.tween_property(node, "position:x", -w, period)
+	tw.tween_callback(func() -> void: node.position.x = 0)
+
+
+func _build_ambient_embers() -> void:
+	var tex := _load_gen("ember")
+	if tex == null:
+		return
+	var p := CPUParticles2D.new()
+	p.texture = tex
+	p.position = Vector2(GameData.SCREEN.x * 0.5, GROUND_Y + 20)
+	p.amount = 26
+	p.lifetime = 6.0
+	p.preprocess = 4.0
+	p.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
+	p.emission_rect_extents = Vector2(GameData.SCREEN.x * 0.5, 10)
+	p.direction = Vector2(0, -1)
+	p.spread = 18.0
+	p.gravity = Vector2(0, -8)
+	p.initial_velocity_min = 10.0
+	p.initial_velocity_max = 26.0
+	p.scale_amount_min = 0.15
+	p.scale_amount_max = 0.5
+	p.color = Color(1.0, 0.8, 0.5, 0.5)
+	add_child(p)
+
+
+# 화면 가장자리를 어둡게(분위기). 비전투 표시라 입력 통과, UI 패널보다 아래.
+func _build_vignette() -> void:
+	var tex := _load_gen("vignette")
+	if tex == null:
+		return
+	var v := TextureRect.new()
+	v.texture = tex
+	v.position = Vector2.ZERO
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(v)
+
+
+# 타격·처치 순간 잔불이 튀는 버스트(한 번 터지고 사라짐).
+func _spawn_hit_burst(pos: Vector2, color: Color, amount: int) -> void:
+	var tex := _load_gen("ember")
+	if tex == null:
+		return
+	var p := CPUParticles2D.new()
+	p.texture = tex
+	p.position = pos
+	p.emitting = true
+	p.one_shot = true
+	p.explosiveness = 0.9
+	p.amount = amount
+	p.lifetime = 0.5
+	p.direction = Vector2(-1, -0.3)
+	p.spread = 70.0
+	p.gravity = Vector2(0, 240)
+	p.initial_velocity_min = 80.0
+	p.initial_velocity_max = 200.0
+	p.scale_amount_min = 0.2
+	p.scale_amount_max = 0.6
+	p.color = color
+	add_child(p)
+	get_tree().create_timer(0.8).timeout.connect(p.queue_free)
 
 
 # ── 전투 영역(캐릭터·진행) ───────────────────────────────────────
@@ -642,24 +798,55 @@ func _play(name: String) -> void:
 
 
 # ── 캐릭터 생성(도형 조합) ───────────────────────────────────────
+# 바닥 그림자 스프라이트(글로우 텍스처를 눌러 타원 그림자로 사용).
+func _shadow(width: float) -> Sprite2D:
+	var s := Sprite2D.new()
+	s.texture = _load_gen("glow")
+	s.position = Vector2(0, -4)
+	s.modulate = Color(0, 0, 0, 0.33)
+	if s.texture != null:
+		s.scale = Vector2(width / 256.0, width / 256.0 * 0.32)
+	return s
+
+
 func _make_hero() -> Node2D:
 	var root := Node2D.new()
+	root.add_child(_shadow(120))
+	# 은은한 아우라
+	var aura := _gen_sprite("glow", Vector2(0, -62), Color(0.45, 0.6, 1.0, 0.16))
+	if aura.texture != null:
+		aura.scale = Vector2(0.7, 0.9)
+		root.add_child(aura)
+	# 외곽선(살짝 큰 어두운 실루엣)
+	root.add_child(_rect_poly(Vector2(-23, -81), Vector2(46, 58), Color(0.06, 0.05, 0.10)))
 	# 다리
-	root.add_child(_rect_poly(Vector2(-14, -28), Vector2(11, 28), Color(0.18, 0.16, 0.24)))
-	root.add_child(_rect_poly(Vector2(3, -28), Vector2(11, 28), Color(0.18, 0.16, 0.24)))
-	# 몸통(갑옷)
-	root.add_child(_rect_poly(Vector2(-20, -78), Vector2(40, 52), Color(0.28, 0.40, 0.72)))
-	root.add_child(_rect_poly(Vector2(-20, -78), Vector2(40, 8), Color(0.40, 0.55, 0.92)))   # 가슴 강조
-	# 머리
-	root.add_child(_circle_poly(Vector2(0, -94), 16, Color(0.92, 0.80, 0.66)))
-	# 투구 챙
-	root.add_child(_rect_poly(Vector2(-16, -104), Vector2(32, 8), Color(0.50, 0.55, 0.62)))
-	# 방패(왼쪽)
-	root.add_child(_circle_poly(Vector2(-26, -52), 14, Color(0.55, 0.45, 0.30)))
-	# 검(오른쪽, 위로)
-	var blade := _rect_poly(Vector2(26, -110), Vector2(7, 70), Color(0.78, 0.82, 0.90))
-	root.add_child(blade)
-	root.add_child(_rect_poly(Vector2(22, -44), Vector2(16, 7), Color(0.45, 0.35, 0.25)))   # 검 손잡이 가드
+	root.add_child(_rect_poly(Vector2(-14, -28), Vector2(11, 28), Color(0.16, 0.14, 0.22)))
+	root.add_child(_rect_poly(Vector2(3, -28), Vector2(11, 28), Color(0.20, 0.17, 0.26)))
+	# 망토(뒤)
+	root.add_child(_tri_poly(Vector2(-18, -74), Vector2(-30, -16), Vector2(-6, -22), Color(0.45, 0.18, 0.22)))
+	# 몸통(갑옷) — 음영 3톤
+	root.add_child(_rect_poly(Vector2(-20, -78), Vector2(40, 54), Color(0.22, 0.32, 0.60)))      # 바닥 그늘
+	root.add_child(_rect_poly(Vector2(-20, -78), Vector2(40, 34), Color(0.30, 0.44, 0.78)))      # 본체
+	root.add_child(_rect_poly(Vector2(-20, -78), Vector2(40, 8), Color(0.46, 0.62, 0.98)))       # 가슴 하이라이트
+	root.add_child(_rect_poly(Vector2(-20, -54), Vector2(40, 5), Color(0.85, 0.72, 0.35)))       # 허리띠(금)
+	# 머리 + 턱 그늘
+	root.add_child(_circle_poly(Vector2(0, -92), 16, Color(0.80, 0.66, 0.52)))
+	root.add_child(_circle_poly(Vector2(0, -94), 15, Color(0.93, 0.81, 0.67)))
+	# 투구
+	root.add_child(_rect_poly(Vector2(-16, -106), Vector2(32, 9), Color(0.58, 0.62, 0.70)))
+	root.add_child(_rect_poly(Vector2(-16, -106), Vector2(32, 3), Color(0.78, 0.82, 0.90)))
+	# 방패(왼쪽) — 테두리 + 면 + 문양
+	root.add_child(_circle_poly(Vector2(-27, -52), 16, Color(0.30, 0.24, 0.16)))
+	root.add_child(_circle_poly(Vector2(-27, -52), 13, Color(0.62, 0.50, 0.32)))
+	root.add_child(_circle_poly(Vector2(-27, -52), 5, Color(0.85, 0.72, 0.40)))
+	# 검(오른쪽) — 날 + 빛 모서리 + 글로우 + 가드
+	root.add_child(_rect_poly(Vector2(25, -114), Vector2(8, 74), Color(0.70, 0.76, 0.86)))
+	root.add_child(_rect_poly(Vector2(25, -114), Vector2(3, 74), Color(0.92, 0.96, 1.0)))
+	var sw_glow := _gen_sprite("glow", Vector2(29, -118), Color(0.7, 0.85, 1.0, 0.5))
+	if sw_glow.texture != null:
+		sw_glow.scale = Vector2(0.18, 0.18)
+		root.add_child(sw_glow)
+	root.add_child(_rect_poly(Vector2(20, -44), Vector2(18, 7), Color(0.50, 0.38, 0.24)))
 	return root
 
 
@@ -667,17 +854,27 @@ func _make_enemy(e: Dictionary) -> Node2D:
 	var root := Node2D.new()
 	var r: float = e["r"]
 	var col: Color = e["color"]
-	# 그림자
-	root.add_child(_circle_poly(Vector2(0, -6), r * 0.8, Color(0, 0, 0, 0.18)))
-	# 몸체
-	root.add_child(_circle_poly(Vector2(0, -r), r, col))
-	# 보스 뿔
+	root.add_child(_shadow(r * 2.6))
 	if e["boss"]:
-		root.add_child(_tri_poly(Vector2(-r * 0.5, -r * 1.7), Vector2(-r * 0.15, -r * 1.2), Vector2(-r * 0.7, -r * 1.2), col.darkened(0.2)))
-		root.add_child(_tri_poly(Vector2(r * 0.5, -r * 1.7), Vector2(r * 0.15, -r * 1.2), Vector2(r * 0.7, -r * 1.2), col.darkened(0.2)))
-	# 눈(왼쪽을 본다)
-	root.add_child(_circle_poly(Vector2(-r * 0.35, -r * 1.1), r * 0.13, Color(0.05, 0.05, 0.08)))
-	root.add_child(_circle_poly(Vector2(-r * 0.0, -r * 1.1), r * 0.13, Color(0.05, 0.05, 0.08)))
+		var ba := _gen_sprite("glow", Vector2(0, -r), Color(1.0, 0.3, 0.3, 0.22))
+		if ba.texture != null:
+			ba.scale = Vector2(r / 110.0, r / 110.0)
+			root.add_child(ba)
+	# 외곽선
+	root.add_child(_circle_poly(Vector2(0, -r), r + 2.5, Color(0.05, 0.04, 0.07)))
+	# 몸체(아래 그늘 → 본체 → 위 하이라이트)
+	root.add_child(_circle_poly(Vector2(0, -r), r, col.darkened(0.28)))
+	root.add_child(_circle_poly(Vector2(0, -r * 1.04), r * 0.92, col))
+	root.add_child(_circle_poly(Vector2(-r * 0.22, -r * 1.28), r * 0.42, col.lightened(0.28)))
+	# 보스 뿔·가시
+	if e["boss"]:
+		root.add_child(_tri_poly(Vector2(-r * 0.5, -r * 1.8), Vector2(-r * 0.12, -r * 1.25), Vector2(-r * 0.72, -r * 1.22), col.darkened(0.4)))
+		root.add_child(_tri_poly(Vector2(r * 0.5, -r * 1.8), Vector2(r * 0.12, -r * 1.25), Vector2(r * 0.72, -r * 1.22), col.darkened(0.4)))
+	# 눈(흰자 + 동공, 왼쪽을 본다)
+	var er: float = r * 0.17
+	for ex in [-r * 0.34, r * 0.02]:
+		root.add_child(_circle_poly(Vector2(ex, -r * 1.12), er, Color(0.95, 0.95, 0.98)))
+		root.add_child(_circle_poly(Vector2(ex - er * 0.4, -r * 1.12), er * 0.55, Color(0.05, 0.04, 0.08)))
 	return root
 
 
@@ -765,6 +962,8 @@ func _player_attack() -> void:
 	enemy["hp"] = int(enemy["hp"]) - dmg
 	_play("heavy" if crit else "attack_basic")
 	_hit_flash(enemy_node)
+	var hitpos := Vector2(ENEMY_X - enemy["r"] * 0.4, GROUND_Y - enemy["r"])
+	_spawn_hit_burst(hitpos, Color(1.0, 0.85, 0.55, 0.9) if crit else Color(0.9, 0.92, 1.0, 0.8), 10 if crit else 5)
 	_float_text(Vector2(ENEMY_X, GROUND_Y - enemy["r"] * 2.0 - 6), str(dmg), COL_GOLD if crit else COL_TEXT, crit)
 	_update_enemy_hp()
 	if int(enemy["hp"]) <= 0:
@@ -798,6 +997,7 @@ func _enemy_die() -> void:
 	_gain_exp(int(enemy["exp"]))
 	var was_boss: bool = enemy["boss"]
 	_play("boss_victory" if was_boss else "")
+	_spawn_hit_burst(Vector2(ENEMY_X, GROUND_Y - enemy["r"]), Color(enemy["color"]).lightened(0.2), 22 if was_boss else 12)
 	if is_instance_valid(enemy_node):
 		var tw := create_tween()
 		tw.tween_property(enemy_node, "scale", Vector2(0.1, 0.1), 0.22)
