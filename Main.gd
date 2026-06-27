@@ -84,6 +84,7 @@ var sfx_streams := {}
 var sfx_players: Array = []
 var sfx_next := 0
 var sound_on := true
+var seen_intro := false
 
 
 func _ready() -> void:
@@ -109,6 +110,8 @@ func _ready() -> void:
 	_apply_font()
 	if not _shot_mode and not s.is_empty():
 		_grant_offline(s)
+	if not _shot_mode and not seen_intro:
+		_show_onboarding()
 	if _shot_mode:
 		_run_shot_sequence()
 
@@ -119,6 +122,12 @@ const SHOT_DIR := "C:/Users/USER/AppData/Local/Temp/claude/C--Users-USER-unknown
 
 func _run_shot_sequence() -> void:
 	await get_tree().create_timer(0.6).timeout
+	_show_onboarding()
+	await get_tree().create_timer(0.3).timeout
+	_save_shot("r00_intro")
+	if is_instance_valid(_onboard_ov):
+		_onboard_ov.queue_free()
+	await get_tree().create_timer(0.1).timeout
 	_save_shot("r01_start")
 	gold = 99999; _update_hud(); _update_growth_buttons()
 	await get_tree().create_timer(0.3).timeout
@@ -148,6 +157,62 @@ func _run_shot_sequence() -> void:
 	await get_tree().create_timer(0.45).timeout
 	_save_shot("r08_bosswindup")
 	get_tree().quit(0)
+
+var _onboard_ov: Control
+
+# 첫 실행 안내(코치마크). 카드를 탭하며 3장 넘기고, 끝나면 다시 안 보이게 저장한다.
+func _show_onboarding() -> void:
+	var pages := [
+		"균열기사가 자동으로 싸웁니다.\n적을 처치하면 골드와 경험치가 쌓여요.",
+		"아래 [성장] 버튼으로 강해지세요.\n누를수록 강해지고 비용이 오릅니다.",
+		"5층마다 보스가 등장합니다.\n처치하면 다음 지역으로 전진!",
+		"◆ 환생으로 진행을 초기화하면\n영구 강화 [균열석]을 얻어 더 빨라집니다.\n\n행운을 빕니다, 기사여!",
+	]
+	var ov := Control.new()
+	ov.size = GameData.SCREEN
+	add_child(ov)
+	_onboard_ov = ov
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.72)
+	dim.size = GameData.SCREEN
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	ov.add_child(dim)
+	var box := _new_panel(Rect2(50, 360, 440, 250), COL_PANEL_HI)
+	ov.add_child(box)
+	var head := _new_label("환영합니다", 28, COL_GOLD)
+	head.position = Vector2(50, 384)
+	head.size = Vector2(440, 36)
+	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ov.add_child(head)
+	var body := _new_label("", 21, COL_TEXT)
+	body.position = Vector2(78, 432)
+	body.size = Vector2(384, 120)
+	body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	ov.add_child(body)
+	var btn := Button.new()
+	btn.position = Vector2(150, 552)
+	btn.size = Vector2(240, 46)
+	btn.add_theme_font_size_override("font_size", 20)
+	_style_button(btn)
+	ov.add_child(btn)
+	var idx := {"i": 0}
+	var refresh := func() -> void:
+		body.text = pages[idx["i"]]
+		btn.text = "다음 ▶" if idx["i"] < pages.size() - 1 else "시작하기"
+		if kfont != null:
+			_apply_font_to(ov)
+	refresh.call()
+	btn.pressed.connect(func() -> void:
+		_play("button")
+		idx["i"] += 1
+		if idx["i"] >= pages.size():
+			seen_intro = true
+			_save()
+			ov.queue_free()
+		else:
+			refresh.call())
+
 
 func _save_shot(tag: String) -> void:
 	var img := get_viewport().get_texture().get_image()
@@ -1329,7 +1394,7 @@ func _state_dict() -> Dictionary:
 		"stage": stage, "kills": kills,
 		"max_stage_cleared": max_stage_cleared, "region_cleared": region_cleared,
 		"souls": souls, "prestige_count": prestige_count, "soul_upgrades": soul_upgrades,
-		"sound_on": sound_on,
+		"sound_on": sound_on, "seen_intro": seen_intro,
 	}
 
 
@@ -1351,6 +1416,7 @@ func _apply_save(s: Dictionary) -> void:
 	prestige_count = int(s.get("prestige_count", 0))
 	last_save_unix = int(s.get("last_save_unix", 0))
 	sound_on = bool(s.get("sound_on", true))
+	seen_intro = bool(s.get("seen_intro", false))
 	var su = s.get("soul_upgrades", {})
 	for id in soul_upgrades.keys():
 		soul_upgrades[id] = int(su.get(id, 0)) if typeof(su) == TYPE_DICTIONARY else 0

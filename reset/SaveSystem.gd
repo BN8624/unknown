@@ -20,6 +20,7 @@ static func save(state: Dictionary) -> void:
 		"prestige_count": int(state.get("prestige_count", 0)),
 		"soul_upgrades": state.get("soul_upgrades", {}),
 		"sound_on": bool(state.get("sound_on", true)),
+		"seen_intro": bool(state.get("seen_intro", false)),
 		"last_save_unix": int(Time.get_unix_time_from_system()),
 	}
 	var f := FileAccess.open(PATH, FileAccess.WRITE)
@@ -64,6 +65,7 @@ static func load_state() -> Dictionary:
 		"prestige_count": maxi(0, int(parsed.get("prestige_count", 0))),
 		"soul_upgrades": soul_upgrades,
 		"sound_on": bool(parsed.get("sound_on", true)),
+		"seen_intro": bool(parsed.get("seen_intro", false)),
 		"last_save_unix": int(parsed.get("last_save_unix", 0)),
 	}
 
