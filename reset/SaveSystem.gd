@@ -25,6 +25,7 @@ static func save(state: Dictionary) -> void:
 		"missions": state.get("missions", []),
 		"daily_day": int(state.get("daily_day", 0)),
 		"daily_streak": int(state.get("daily_streak", 0)),
+		"auto_boss": bool(state.get("auto_boss", false)),
 		"last_save_unix": int(Time.get_unix_time_from_system()),
 	}
 	var f := FileAccess.open(PATH, FileAccess.WRITE)
@@ -74,6 +75,7 @@ static func load_state() -> Dictionary:
 		"missions": parsed.get("missions", []) if typeof(parsed.get("missions")) == TYPE_ARRAY else [],
 		"daily_day": int(parsed.get("daily_day", 0)),
 		"daily_streak": int(parsed.get("daily_streak", 0)),
+		"auto_boss": bool(parsed.get("auto_boss", false)),
 		"last_save_unix": int(parsed.get("last_save_unix", 0)),
 	}
 

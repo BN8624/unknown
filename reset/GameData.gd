@@ -126,8 +126,8 @@ const BOSS_EXP_MULT := 7.0
 const ENEMY_ATK_INTERVAL := 1.25
 
 # 적 한 마리의 완성 스탯 딕셔너리(외형 포함)를 만든다.
-static func make_enemy(stage: int) -> Dictionary:
-	var boss := is_boss_stage(stage)
+static func make_enemy(stage: int, force_normal := false) -> Dictionary:
+	var boss := is_boss_stage(stage) and not force_normal
 	var hp := enemy_hp(stage)
 	var atk := enemy_atk(stage)
 	var gold := enemy_gold(stage)

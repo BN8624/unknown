@@ -51,6 +51,10 @@ var p_atk_timer := 0.0
 var e_atk_timer := 0.0
 var boss_atk_count := 0
 var boss_winding := false    # 보스 강공격 예열 중
+var boss_active := false     # 실제 보스전 진행 중(게이트에서 도전 시작)
+var auto_boss := false       # 보스 자동 도전(저장)
+var challenge_btn: Button
+var auto_btn: Button
 var busy := false            # 보상 표시 중엔 전투 정지
 # 액티브 스킬
 const SMASH_CD := 9.0
@@ -101,8 +105,13 @@ var daily_day := 0
 var daily_streak := 0
 
 
+var ui_layer: CanvasLayer
+
 func _ready() -> void:
 	_shot_mode = "--shot" in OS.get_cmdline_user_args()
+	ui_layer = CanvasLayer.new()       # 모든 오버레이는 이 레이어에 → 전투 표시물 위에 항상 그려짐
+	ui_layer.layer = 10
+	add_child(ui_layer)
 	_build_background()
 	_build_battle_area()
 	_build_vignette()
@@ -126,6 +135,7 @@ func _ready() -> void:
 	_update_hud()
 	_update_growth_buttons()
 	_refresh_mission_badge()
+	_refresh_auto_btn()
 	_apply_font()
 	if not _shot_mode and not s.is_empty():
 		_grant_offline(s)
@@ -153,7 +163,7 @@ func _run_shot_sequence() -> void:
 	gold = 99999; _update_hud(); _update_growth_buttons()
 	await get_tree().create_timer(0.3).timeout
 	_save_shot("r02_rich")
-	stage = 5; kills = 0; _spawn_enemy()   # 보스 외형
+	stage = 5; kills = 0; boss_active = true; _spawn_enemy()   # 보스 외형
 	await get_tree().create_timer(0.5).timeout
 	_save_shot("r03_boss")
 	_show_reward("보스 격파!", "거대 거미 아라크 처치\n골드 +1,200\n전투력이 단단해졌습니다.\n\n6층으로 전진!")
@@ -172,7 +182,7 @@ func _run_shot_sequence() -> void:
 	stage = 23; kills = 2; _spawn_enemy()   # 2지역(잿빛 협곡) 일반 적
 	await get_tree().create_timer(0.5).timeout
 	_save_shot("r07_region2")
-	stage = 40; kills = 0; _spawn_enemy()    # 2지역 최종 보스
+	stage = 40; kills = 0; boss_active = true; _spawn_enemy()    # 2지역 최종 보스
 	await get_tree().create_timer(0.4).timeout
 	_boss_heavy()                            # 강공격 예열(확대·붉은 경고)
 	await get_tree().create_timer(0.45).timeout
@@ -185,9 +195,12 @@ func _run_shot_sequence() -> void:
 	await get_tree().create_timer(0.4).timeout
 	_save_shot("r09_missions")
 	mission_overlay.visible = false
-	stage = 45; kills = 3; prestige_count = 2; _apply_hero_skin(); _spawn_enemy()  # 3지역 + 승급 영웅
+	stage = 43; kills = 3; boss_active = false; prestige_count = 2; _apply_hero_skin(); _spawn_enemy()  # 3지역 + 승급 영웅
 	await get_tree().create_timer(0.5).timeout
 	_save_shot("r10_region3")
+	stage = 10; kills = 0; boss_active = false; _spawn_enemy()  # 보스 관문(도전 버튼)
+	await get_tree().create_timer(0.5).timeout
+	_save_shot("r11_gate")
 	get_tree().quit(0)
 
 var _onboard_ov: Control
@@ -202,7 +215,7 @@ func _show_onboarding() -> void:
 	]
 	var ov := Control.new()
 	ov.size = GameData.SCREEN
-	add_child(ov)
+	ui_layer.add_child(ov)
 	_onboard_ov = ov
 	var dim := ColorRect.new()
 	dim.color = Color(0, 0, 0, 0.72)
@@ -291,7 +304,7 @@ func _build_mission_overlay() -> void:
 	mission_overlay = Control.new()
 	mission_overlay.size = GameData.SCREEN
 	mission_overlay.visible = false
-	add_child(mission_overlay)
+	ui_layer.add_child(mission_overlay)
 	var dim := ColorRect.new()
 	dim.color = Color(0, 0, 0, 0.68)
 	dim.size = GameData.SCREEN
@@ -461,31 +474,6 @@ func _build_background() -> void:
 			tw.tween_property(glow, "modulate:a", 0.32, 0.9).set_trans(Tween.TRANS_SINE)
 			tw.tween_property(glow, "modulate:a", 0.55, 1.1).set_trans(Tween.TRANS_SINE)
 
-	# 떠오르는 잔불(앰비언트 파티클)
-	_build_ambient_embers()
-
-
-func _build_ambient_embers() -> void:
-	var tex := _load_gen("ember")
-	if tex == null:
-		return
-	var p := CPUParticles2D.new()
-	p.texture = tex
-	p.position = Vector2(GameData.SCREEN.x * 0.5, GROUND_Y + 20)
-	p.amount = 26
-	p.lifetime = 6.0
-	p.preprocess = 4.0
-	p.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
-	p.emission_rect_extents = Vector2(GameData.SCREEN.x * 0.5, 10)
-	p.direction = Vector2(0, -1)
-	p.spread = 18.0
-	p.gravity = Vector2(0, -8)
-	p.initial_velocity_min = 10.0
-	p.initial_velocity_max = 26.0
-	p.scale_amount_min = 0.15
-	p.scale_amount_max = 0.5
-	p.color = Color(1.0, 0.8, 0.5, 0.5)
-	add_child(p)
 
 
 # 화면 가장자리를 어둡게(분위기). 비전투 표시라 입력 통과, UI 패널보다 아래.
@@ -684,6 +672,62 @@ func _make_upgrade_row(udef: Dictionary, y: float) -> void:
 func _build_skills() -> void:
 	smash_btn = _make_skill_btn("강타", Vector2(452, 452), _use_smash)
 	haste_btn = _make_skill_btn("가속", Vector2(452, 534), _use_haste)
+	_build_challenge_ui()
+
+
+# 보스 게이트 도전 UI: 큰 '보스 도전' 버튼 + 자동 도전 토글.
+func _build_challenge_ui() -> void:
+	challenge_btn = Button.new()
+	challenge_btn.text = "⚔  보스 도전"
+	challenge_btn.position = Vector2(110, 250)
+	challenge_btn.size = Vector2(320, 64)
+	challenge_btn.add_theme_font_size_override("font_size", 26)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.55, 0.16, 0.20, 0.96); sb.set_corner_radius_all(16)
+	sb.border_color = COL_GOLD; sb.set_border_width_all(3)
+	var pr := sb.duplicate(); pr.bg_color = Color(0.70, 0.22, 0.26)
+	challenge_btn.add_theme_stylebox_override("normal", sb)
+	challenge_btn.add_theme_stylebox_override("hover", sb)
+	challenge_btn.add_theme_stylebox_override("pressed", pr)
+	challenge_btn.add_theme_color_override("font_color", Color(1, 0.95, 0.85))
+	challenge_btn.pressed.connect(func() -> void:
+		_play("button"); _btn_pop(challenge_btn); _start_boss_challenge())
+	challenge_btn.visible = false
+	add_child(challenge_btn)
+
+	auto_btn = Button.new()
+	auto_btn.position = Vector2(150, 322); auto_btn.size = Vector2(240, 40)
+	auto_btn.add_theme_font_size_override("font_size", 18)
+	_style_button(auto_btn)
+	auto_btn.pressed.connect(func() -> void:
+		auto_boss = not auto_boss
+		_refresh_auto_btn()
+		_save()
+		if auto_boss and challenge_btn.visible and not boss_active:
+			_start_boss_challenge())
+	auto_btn.visible = false
+	add_child(auto_btn)
+	_refresh_auto_btn()
+
+
+func _refresh_auto_btn() -> void:
+	if auto_btn != null:
+		auto_btn.text = "자동 도전: 켜짐" if auto_boss else "자동 도전: 꺼짐"
+
+
+func _show_challenge(on: bool) -> void:
+	if challenge_btn == null:
+		return
+	challenge_btn.visible = on
+	auto_btn.visible = on
+
+
+func _start_boss_challenge() -> void:
+	if boss_active or not GameData.is_boss_stage(stage) or busy:
+		return
+	boss_active = true
+	_show_challenge(false)
+	_spawn_enemy()
 
 
 func _make_skill_btn(label: String, pos: Vector2, cb: Callable) -> Button:
@@ -768,7 +812,7 @@ func _build_reward_overlay() -> void:
 	reward_overlay = Control.new()
 	reward_overlay.size = GameData.SCREEN
 	reward_overlay.visible = false
-	add_child(reward_overlay)
+	ui_layer.add_child(reward_overlay)
 	var dim := ColorRect.new()
 	dim.color = Color(0, 0, 0, 0.55)
 	dim.size = GameData.SCREEN
@@ -793,7 +837,7 @@ func _build_settings_overlay() -> void:
 	settings_overlay = Control.new()
 	settings_overlay.size = GameData.SCREEN
 	settings_overlay.visible = false
-	add_child(settings_overlay)
+	ui_layer.add_child(settings_overlay)
 	var dim := ColorRect.new()
 	dim.color = Color(0, 0, 0, 0.6)
 	dim.size = GameData.SCREEN
@@ -859,7 +903,7 @@ func _build_prestige_overlay() -> void:
 	prestige_overlay = Control.new()
 	prestige_overlay.size = GameData.SCREEN
 	prestige_overlay.visible = false
-	add_child(prestige_overlay)
+	ui_layer.add_child(prestige_overlay)
 	var dim := ColorRect.new()
 	dim.color = Color(0, 0, 0, 0.7)
 	dim.size = GameData.SCREEN
@@ -1249,7 +1293,9 @@ func _spawn_enemy() -> void:
 	if lbl_enemy_name != null and is_instance_valid(lbl_enemy_name):
 		lbl_enemy_name.queue_free()
 
-	enemy = GameData.make_enemy(stage)
+	# 보스 스테이지인데 아직 도전 전이면: 일반 몹을 파밍하며 '보스 도전' 게이트 표시
+	var at_gate: bool = GameData.is_boss_stage(stage) and not boss_active
+	enemy = GameData.make_enemy(stage, at_gate)
 	enemy_node = _make_enemy(enemy)
 	enemy_node.position = Vector2(ENEMY_X + 180, GROUND_Y)   # 오른쪽에서 슬라이드 인
 	add_child(enemy_node)
@@ -1287,6 +1333,9 @@ func _spawn_enemy() -> void:
 	e_atk_timer = 0.0
 	boss_atk_count = 0
 	boss_winding = false
+	_show_challenge(at_gate)
+	if at_gate and auto_boss:
+		get_tree().create_timer(1.2).timeout.connect(_start_boss_challenge)
 	_update_progress()
 
 
@@ -1464,7 +1513,17 @@ func _screen_flash(col: Color) -> void:
 func _player_down() -> void:
 	p_hp = p_max_hp
 	_update_hero_hp()
-	_flash_notice("재정비!")
+	if boss_active:
+		# 보스전 패배 → 보스 포기, 일반 몹 파밍으로 복귀(다시 도전 가능)
+		boss_active = false
+		boss_winding = false
+		_flash_notice("보스 도전 실패!\n전열을 정비하세요")
+		_spawn_enemy()
+	else:
+		# 일반 몹에게 패배 → 현재 층 처음부터(처치 수 초기화)
+		kills = 0
+		_flash_notice("재정비! 처음부터")
+		_update_progress()
 
 
 func _enemy_die() -> void:
@@ -1496,7 +1555,13 @@ func _enemy_die() -> void:
 
 func _after_kill(was_boss: bool) -> void:
 	if was_boss:
+		boss_active = false
 		_stage_clear(true)
+		return
+	# 보스 게이트에서 파밍 중이면 처치해도 진행 없이 다음 몹(도전 대기)
+	if GameData.is_boss_stage(stage) and not boss_active:
+		await get_tree().create_timer(0.35).timeout
+		_spawn_enemy()
 		return
 	kills += 1
 	if kills >= GameData.KILLS_PER_STAGE:
@@ -1614,8 +1679,11 @@ func _update_hud() -> void:
 
 func _update_progress() -> void:
 	if enemy.get("boss", false):
-		lbl_progress.text = "◆ 보스 ◆"
+		lbl_progress.text = "◆ 보스전 ◆"
 		lbl_progress.add_theme_color_override("font_color", COL_HP_BOSS)
+	elif GameData.is_boss_stage(stage) and not boss_active:
+		lbl_progress.text = "보스 관문 — 도전 대기"
+		lbl_progress.add_theme_color_override("font_color", COL_GOLD)
 	else:
 		lbl_progress.text = "처치  %d / %d" % [kills, GameData.KILLS_PER_STAGE]
 		lbl_progress.add_theme_color_override("font_color", COL_DIM)
@@ -1717,6 +1785,7 @@ func _state_dict() -> Dictionary:
 		"sound_on": sound_on, "seen_intro": seen_intro,
 		"counters": counters, "missions": missions,
 		"daily_day": daily_day, "daily_streak": daily_streak,
+		"auto_boss": auto_boss,
 	}
 
 
@@ -1745,6 +1814,7 @@ func _apply_save(s: Dictionary) -> void:
 	missions = s.get("missions", []) if typeof(s.get("missions")) == TYPE_ARRAY else []
 	daily_day = int(s.get("daily_day", 0))
 	daily_streak = int(s.get("daily_streak", 0))
+	auto_boss = bool(s.get("auto_boss", false))
 	var su = s.get("soul_upgrades", {})
 	for id in soul_upgrades.keys():
 		soul_upgrades[id] = int(su.get(id, 0)) if typeof(su) == TYPE_DICTIONARY else 0
@@ -1759,6 +1829,8 @@ func _reset_progress() -> void:
 	soul_upgrades = {"s_atk": 0, "s_gold": 0, "s_hp": 0, "s_off": 0}
 	counters = {"kill": 0, "stage": 0, "upgrade": 0, "boss": 0, "gold": 0}
 	missions = []; daily_day = 0; daily_streak = 0
+	boss_active = false; auto_boss = false
+	_refresh_auto_btn()
 	_ensure_missions()
 	_refresh_mission_badge()
 	_recompute_stats()
