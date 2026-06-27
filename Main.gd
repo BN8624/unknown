@@ -779,8 +779,9 @@ func _make_upgrade_row(udef: Dictionary, y: float) -> void:
 
 # ── 액티브 스킬 ──────────────────────────────────────────────────
 func _build_skills() -> void:
-	smash_btn = _make_skill_btn("강타", Vector2(452, 452), _use_smash)
-	haste_btn = _make_skill_btn("가속", Vector2(452, 534), _use_haste)
+	# 좌측 세로 스택(영웅 왼편 빈 공간 — 우측 적·중앙 영웅과 안 겹침)
+	smash_btn = _make_skill_btn("강타", Vector2(14, 452), _use_smash)
+	haste_btn = _make_skill_btn("가속", Vector2(14, 522), _use_haste)
 	_build_challenge_ui()
 
 
@@ -899,12 +900,12 @@ func _boss_intro() -> void:
 func _make_skill_btn(label: String, pos: Vector2, cb: Callable) -> Button:
 	var b := Button.new()
 	b.position = pos
-	b.size = Vector2(72, 72)
+	b.size = Vector2(60, 60)
 	b.text = label
-	b.add_theme_font_size_override("font_size", 20)
+	b.add_theme_font_size_override("font_size", 18)
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.18, 0.20, 0.26, 0.96)
-	sb.set_corner_radius_all(36)
+	sb.set_corner_radius_all(30)
 	sb.border_color = COL_GOLD
 	sb.set_border_width_all(2)
 	var pressed := sb.duplicate(); pressed.bg_color = Color(0.28, 0.31, 0.38)
@@ -1468,17 +1469,22 @@ func _char_sprite(name: String, disp_h: float, tint := Color.WHITE) -> Sprite2D:
 	return _pixel_sprite(name, disp_h, tint)
 
 
-# SD 일러스트 스프라이트(부드러운 고해상). 발 바닥 = y0 정렬.
+# SD 일러스트 스프라이트(부드러운 고해상). 투명 여백 제외한 '실제 그림 바닥'을 지면(y0)에 정렬 → 떠보임 방지.
 func _illus_sprite(path: String, disp_h: float, tint := Color.WHITE) -> Sprite2D:
 	var s := Sprite2D.new()
 	s.texture = load(path)
 	s.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	s.modulate = tint
-	var th: float = maxf(1.0, s.texture.get_height())
-	var sc := disp_h / th
+	var used := s.texture.get_image().get_used_rect()   # 불투명 영역
+	var ch: float = maxf(1.0, used.size.y)
+	var sc := disp_h / ch                                # disp_h = 실제 캐릭터 높이
 	s.scale = Vector2(sc, sc)
 	s.centered = false
-	s.position = Vector2(-s.texture.get_width() * sc * 0.5, -s.texture.get_height() * sc)
+	# 실제 그림의 가로 중심을 x0, 바닥을 y0에 맞춘다.
+	s.position = Vector2(
+		-(used.position.x + used.size.x * 0.5) * sc,
+		-(used.position.y + used.size.y) * sc
+	)
 	return s
 
 
