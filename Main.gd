@@ -217,6 +217,9 @@ func _run_shot_sequence() -> void:
 	stage = 10; kills = 0; boss_active = false; _spawn_enemy()  # 보스 관문(도전 버튼)
 	await get_tree().create_timer(0.5).timeout
 	_save_shot("r11_gate")
+	_boss_intro()  # 보스 도전 컷(초상화)
+	await get_tree().create_timer(0.6).timeout
+	_save_shot("r11b_bossintro")
 	# 업적 오버레이(일부 달성 상태로)
 	max_stage_cleared = 45; counters = {"kill": 5200, "stage": 50, "upgrade": 230, "boss": 12, "gold": 2500000}
 	achieved = ["f10","f25","f40","k100","k1k","b10","u50","u200","p1"]; _recompute_ach_mult(); _recompute_stats()
@@ -244,26 +247,36 @@ func _show_onboarding() -> void:
 	ov.size = GameData.SCREEN
 	ui_layer.add_child(ov)
 	_onboard_ov = ov
+	# 타이틀 배경 아트(균열 앞의 기사)
+	var scene := _ui_icon("scene_rift", Vector2.ZERO, 0)
+	if scene != null:
+		scene.size = GameData.SCREEN
+		scene.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		ov.add_child(scene)
 	var dim := ColorRect.new()
-	dim.color = Color(0, 0, 0, 0.72)
+	dim.color = Color(0.02, 0.01, 0.05, 0.45)
 	dim.size = GameData.SCREEN
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	ov.add_child(dim)
-	var box := _new_panel(Rect2(50, 360, 440, 250), COL_PANEL_HI)
+	var titlebar := _new_label("균열기사", 44, COL_GOLD)
+	titlebar.position = Vector2(0, 70); titlebar.size = Vector2(GameData.SCREEN.x, 60)
+	titlebar.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ov.add_child(titlebar)
+	var box := _new_panel(Rect2(50, 560, 440, 250), COL_PANEL_HI)
 	ov.add_child(box)
 	var head := _new_label("환영합니다", 28, COL_GOLD)
-	head.position = Vector2(50, 384)
+	head.position = Vector2(50, 584)
 	head.size = Vector2(440, 36)
 	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	ov.add_child(head)
 	var body := _new_label("", 21, COL_TEXT)
-	body.position = Vector2(78, 432)
+	body.position = Vector2(78, 632)
 	body.size = Vector2(384, 120)
 	body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	ov.add_child(body)
 	var btn := Button.new()
-	btn.position = Vector2(150, 552)
+	btn.position = Vector2(150, 752)
 	btn.size = Vector2(240, 46)
 	btn.add_theme_font_size_override("font_size", 20)
 	_style_button(btn)
@@ -653,8 +666,11 @@ func _build_hud() -> void:
 		_open_settings())
 	add_child(gear)
 
+	var coin := _ui_icon("icon_gold", Vector2(18, 52), 30)
+	if coin != null:
+		add_child(coin)
 	lbl_gold = _new_label("", 22, COL_GOLD)
-	lbl_gold.position = Vector2(22, 54)
+	lbl_gold.position = Vector2(54, 54)
 	add_child(lbl_gold)
 
 	lbl_level = _new_label("", 22, COL_TEXT)
@@ -723,8 +739,11 @@ func _make_upgrade_row(udef: Dictionary, y: float) -> void:
 	var id: String = udef["id"]
 	var panel := _new_panel(Rect2(16, y, 508, 44), COL_PANEL_HI)
 	add_child(panel)
+	var ic := _ui_icon("icon_" + id, Vector2(24, y + 4), 36)
+	if ic != null:
+		add_child(ic)
 	var name_lbl := _new_label("", 18, COL_TEXT)
-	name_lbl.position = Vector2(30, y + 9)
+	name_lbl.position = Vector2(70, y + 9)
 	add_child(name_lbl)
 	var value_lbl := _new_label("", 17, COL_DIM)
 	value_lbl.position = Vector2(180, y + 10)
@@ -804,7 +823,53 @@ func _start_boss_challenge() -> void:
 		return
 	boss_active = true
 	_show_challenge(false)
+	_boss_intro()
 	_spawn_enemy()
+
+
+# 보스 도전 컷: 초상화가 확 떠오르며 보스 이름 표시(1.3초, 비차단).
+func _boss_intro() -> void:
+	if _shot_mode and false:
+		return
+	var path := "res://assets/ui/boss_portrait.png"
+	if not ResourceLoader.exists(path):
+		return
+	var bname: String = GameData.make_enemy(stage).get("name", "보스")
+	var ov := Control.new(); ov.size = GameData.SCREEN
+	ov.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ui_layer.add_child(ov)
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.0); dim.size = GameData.SCREEN
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ov.add_child(dim)
+	var port := TextureRect.new()
+	port.texture = load(path)
+	port.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	port.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	port.size = Vector2(340, 340)
+	port.position = Vector2(GameData.SCREEN.x * 0.5 - 170, 168)
+	port.pivot_offset = Vector2(170, 170)
+	port.scale = Vector2(0.6, 0.6)
+	port.modulate = Color(1, 1, 1, 0)
+	port.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ov.add_child(port)
+	var nm := _new_label("[보스]  " + bname, 30, COL_HP_BOSS)
+	nm.position = Vector2(0, 520); nm.size = Vector2(GameData.SCREEN.x, 40)
+	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	nm.modulate = Color(1, 1, 1, 0)
+	ov.add_child(nm)
+	if kfont != null:
+		_apply_font_to(ov)
+	_play("boss_appear")
+	var tw := create_tween()
+	tw.tween_property(dim, "color", Color(0, 0, 0, 0.55), 0.2)
+	tw.parallel().tween_property(port, "scale", Vector2(1.0, 1.0), 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.parallel().tween_property(port, "modulate", Color(1, 1, 1, 1), 0.25)
+	tw.parallel().tween_property(nm, "modulate", Color(1, 1, 1, 1), 0.3)
+	tw.tween_interval(0.55)
+	tw.tween_property(ov, "modulate", Color(1, 1, 1, 0), 0.35)
+	tw.parallel().tween_property(dim, "color", Color(0, 0, 0, 0), 0.35)
+	tw.tween_callback(ov.queue_free)
 
 
 func _make_skill_btn(label: String, pos: Vector2, cb: Callable) -> Button:
@@ -1932,7 +1997,7 @@ func _gain_exp(amount: int) -> void:
 
 # ── 표시 갱신 ────────────────────────────────────────────────────
 func _update_hud() -> void:
-	lbl_gold.text = "골드  %s" % _fmt(gold)
+	lbl_gold.text = _fmt(gold)
 	lbl_level.text = "Lv %d" % level
 	lbl_stage.text = "%s · %d층" % [GameData.region_for(stage)["name"], stage]
 	var need := GameData.exp_to_next(level)
@@ -2148,6 +2213,21 @@ func _new_label(text: String, fs: int, col: Color) -> Label:
 	l.add_theme_color_override("font_color", col)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return l
+
+
+# UI 아이콘(assets/ui/<name>.png) TextureRect. 없으면 null.
+func _ui_icon(name: String, pos: Vector2, size: float) -> TextureRect:
+	var path := "res://assets/ui/%s.png" % name
+	if not ResourceLoader.exists(path):
+		return null
+	var t := TextureRect.new()
+	t.texture = load(path)
+	t.position = pos
+	t.size = Vector2(size, size)
+	t.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	t.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return t
 
 
 func _new_panel(rect: Rect2, col: Color) -> Panel:
