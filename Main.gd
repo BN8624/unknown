@@ -4,16 +4,20 @@ extends Control
 const GameData := preload("res://reset/GameData.gd")
 const SaveSystem := preload("res://reset/SaveSystem.gd")
 
-# ── 팔레트 ───────────────────────────────────────────────────────
-const COL_PANEL := Color(0.14, 0.11, 0.22, 0.96)
-const COL_PANEL_HI := Color(0.20, 0.16, 0.30, 0.98)
-const COL_BORDER := Color(0.40, 0.33, 0.58)
-const COL_GOLD := Color(0.96, 0.78, 0.32)
-const COL_TEXT := Color(0.93, 0.91, 0.99)
-const COL_DIM := Color(0.62, 0.58, 0.72)
-const COL_HP := Color(0.35, 0.82, 0.42)
-const COL_HP_BOSS := Color(0.86, 0.32, 0.34)
-const COL_EXP := Color(0.55, 0.45, 0.95)
+# ── 팔레트(다크 판타지: 심해 인디고 + 금색 강조) ─────────────────
+const COL_PANEL := Color(0.10, 0.09, 0.17, 0.97)
+const COL_PANEL_HI := Color(0.16, 0.14, 0.26, 0.98)
+const COL_BTN := Color(0.20, 0.17, 0.32)
+const COL_BTN_HI := Color(0.30, 0.25, 0.46)
+const COL_BORDER := Color(0.46, 0.38, 0.66)
+const COL_BEVEL := Color(0.66, 0.56, 0.92, 0.55)   # 윗변 하이라이트
+const COL_SHADOW := Color(0.0, 0.0, 0.0, 0.45)
+const COL_GOLD := Color(1.0, 0.81, 0.36)
+const COL_TEXT := Color(0.95, 0.93, 1.0)
+const COL_DIM := Color(0.60, 0.56, 0.72)
+const COL_HP := Color(0.40, 0.85, 0.46)
+const COL_HP_BOSS := Color(0.90, 0.30, 0.34)
+const COL_EXP := Color(0.62, 0.48, 1.0)
 
 const GROUND_Y := 600.0
 const HERO_X := 158.0
@@ -497,11 +501,26 @@ func _load_gen(name: String) -> Texture2D:
 		return load(path)
 	return null
 
+var _add_mat: CanvasItemMaterial
+func _get_add_mat() -> CanvasItemMaterial:
+	if _add_mat == null:
+		_add_mat = CanvasItemMaterial.new()
+		_add_mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	return _add_mat
+
 func _gen_sprite(name: String, pos: Vector2, modulate := Color.WHITE) -> Sprite2D:
 	var s := Sprite2D.new()
 	s.texture = _load_gen(name)
 	s.position = pos
 	s.modulate = modulate
+	return s
+
+# 빛 글로우(가산 혼합 → 진짜 광원처럼 빛난다).
+func _light(pos: Vector2, scale: float, color: Color) -> Sprite2D:
+	var s := _gen_sprite("glow", pos, color)
+	if s.texture != null:
+		s.material = _get_add_mat()
+		s.scale = Vector2(scale, scale)
 	return s
 
 func _build_background() -> void:
@@ -519,15 +538,18 @@ func _build_background() -> void:
 	bg_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg_layer)
 
-	# 벽 횃불 위치(합성 이미지 기준)에 흔들리는 불빛 글로우
+	# 벽 횃불 광원(가산 글로우, 흔들림)
 	for tx in [120.0, 424.0]:
-		var glow := _gen_sprite("glow", Vector2(tx, 322), Color(1.0, 0.55, 0.2, 0.5))
+		var glow := _light(Vector2(tx, 318), 1.15, Color(1.0, 0.55, 0.22, 0.5))
 		if glow.texture != null:
-			glow.scale = Vector2(0.7, 0.7)
 			add_child(glow)
 			var tw := create_tween().set_loops()
-			tw.tween_property(glow, "modulate:a", 0.32, 0.9).set_trans(Tween.TRANS_SINE)
-			tw.tween_property(glow, "modulate:a", 0.55, 1.1).set_trans(Tween.TRANS_SINE)
+			tw.tween_property(glow, "modulate:a", 0.34, 0.9).set_trans(Tween.TRANS_SINE)
+			tw.tween_property(glow, "modulate:a", 0.58, 1.1).set_trans(Tween.TRANS_SINE)
+	# 바닥 전투 영역 은은한 광원(캐릭터가 어둠에 묻히지 않게)
+	var floor_light := _light(Vector2(GameData.SCREEN.x * 0.5, GROUND_Y - 40), 2.4, Color(0.5, 0.45, 0.7, 0.18))
+	if floor_light.texture != null:
+		add_child(floor_light)
 
 
 
@@ -1064,35 +1086,34 @@ func _build_prestige_overlay() -> void:
 	dim.size = GameData.SCREEN
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	prestige_overlay.add_child(dim)
-	var box := _new_panel(Rect2(34, 120, 472, 720), COL_PANEL_HI)
+	var box := _new_panel(Rect2(28, 92, 484, 770), COL_PANEL_HI)
 	prestige_overlay.add_child(box)
-	var t := _new_label("환생 · 균열석 상점", 30, Color(0.82, 0.74, 1.0))
-	t.position = Vector2(34, 142)
-	t.size = Vector2(472, 40)
+	var t := _new_label("환생 · 균열석 상점", 28, Color(0.82, 0.74, 1.0))
+	t.position = Vector2(28, 108)
+	t.size = Vector2(484, 38)
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	prestige_overlay.add_child(t)
-	prestige_body = _new_label("", 19, COL_TEXT)
-	prestige_body.position = Vector2(50, 190)
-	prestige_body.size = Vector2(440, 60)
+	prestige_body = _new_label("", 18, COL_TEXT)
+	prestige_body.position = Vector2(44, 150)
+	prestige_body.size = Vector2(452, 28)
 	prestige_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	prestige_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	prestige_overlay.add_child(prestige_body)
 
-	# 균열석 상점(영구 강화, 환생해도 유지)
-	var y := 264.0
+	# 균열석 상점(영구 강화, 환생해도 유지) — 6행
+	var y := 192.0
 	for udef in GameData.SOUL_UPGRADES:
 		_make_soul_row(udef, y)
-		y += 62.0
+		y += 58.0
 
 	var div := _new_label("— 환생하면 균열석을 얻고 진행은 초기화됩니다 —", 15, COL_DIM)
-	div.position = Vector2(34, 540)
-	div.size = Vector2(472, 22)
+	div.position = Vector2(28, 546)
+	div.size = Vector2(484, 22)
 	div.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	prestige_overlay.add_child(div)
 
 	prestige_do_btn = Button.new()
-	prestige_do_btn.position = Vector2(70, 576)
-	prestige_do_btn.size = Vector2(400, 60)
+	prestige_do_btn.position = Vector2(64, 578)
+	prestige_do_btn.size = Vector2(412, 58)
 	prestige_do_btn.add_theme_font_size_override("font_size", 22)
 	_style_button(prestige_do_btn)
 	prestige_do_btn.pressed.connect(func() -> void:
@@ -1111,8 +1132,8 @@ func _build_prestige_overlay() -> void:
 
 	var pclose_btn := Button.new()
 	pclose_btn.text = "닫기"
-	pclose_btn.position = Vector2(70, 648)
-	pclose_btn.size = Vector2(400, 48)
+	pclose_btn.position = Vector2(64, 648)
+	pclose_btn.size = Vector2(412, 46)
 	pclose_btn.add_theme_font_size_override("font_size", 19)
 	_style_button(pclose_btn)
 	pclose_btn.pressed.connect(func() -> void:
@@ -1317,6 +1338,39 @@ func _shadow(width: float) -> Sprite2D:
 
 
 # 16px 픽셀 스프라이트를 또렷하게(nearest) 표시. 발 바닥이 y=0에 오도록 정렬.
+var _outline_mat: ShaderMaterial
+
+# 픽셀 스프라이트용 1px 외곽선 셰이더(배경에서 캐릭터를 분리).
+func _get_outline_mat() -> ShaderMaterial:
+	if _outline_mat != null:
+		return _outline_mat
+	var sh := Shader.new()
+	sh.code = """
+shader_type canvas_item;
+uniform vec4 outline_color : source_color = vec4(0.04, 0.03, 0.06, 1.0);
+uniform float width = 1.2;
+void fragment() {
+	vec2 px = width / vec2(textureSize(TEXTURE, 0));
+	vec4 c = texture(TEXTURE, UV);
+	if (c.a > 0.3) {
+		COLOR = c * COLOR;
+	} else {
+		float a = 0.0;
+		a = max(a, texture(TEXTURE, UV + vec2(px.x, 0.0)).a);
+		a = max(a, texture(TEXTURE, UV - vec2(px.x, 0.0)).a);
+		a = max(a, texture(TEXTURE, UV + vec2(0.0, px.y)).a);
+		a = max(a, texture(TEXTURE, UV - vec2(0.0, px.y)).a);
+		a = max(a, texture(TEXTURE, UV + px).a);
+		a = max(a, texture(TEXTURE, UV - px).a);
+		COLOR = vec4(outline_color.rgb, outline_color.a * step(0.3, a) * COLOR.a);
+	}
+}
+"""
+	_outline_mat = ShaderMaterial.new()
+	_outline_mat.shader = sh
+	return _outline_mat
+
+
 func _pixel_sprite(name: String, disp_h: float, tint := Color.WHITE) -> Sprite2D:
 	var path := "res://assets/sprites/%s.png" % name
 	if not ResourceLoader.exists(path):
@@ -1324,6 +1378,7 @@ func _pixel_sprite(name: String, disp_h: float, tint := Color.WHITE) -> Sprite2D
 	var s := Sprite2D.new()
 	s.texture = load(path)
 	s.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	s.material = _get_outline_mat()
 	s.modulate = tint
 	var th: float = maxf(1.0, s.texture.get_height())
 	var sc := disp_h / th
@@ -1335,12 +1390,11 @@ func _pixel_sprite(name: String, disp_h: float, tint := Color.WHITE) -> Sprite2D
 
 func _make_hero() -> Node2D:
 	var root := Node2D.new()
-	root.add_child(_shadow(120))
-	var aura0 := _gen_sprite("glow", Vector2(0, -50), Color(0.45, 0.6, 1.0, 0.14))
-	if aura0.texture != null:
-		aura0.scale = Vector2(0.7, 0.9)
-		root.add_child(aura0)
-	var spr := _pixel_sprite(_hero_skin_name(), 84.0)
+	root.add_child(_shadow(140))
+	var hl := _light(Vector2(0, -54), 1.0, Color(0.55, 0.65, 1.0, 0.22))   # 영웅 발치 광원
+	if hl.texture != null:
+		root.add_child(hl)
+	var spr := _pixel_sprite(_hero_skin_name(), 104.0)
 	if spr != null:
 		hero_sprite = spr
 		root.add_child(spr)
@@ -1362,7 +1416,7 @@ func _apply_hero_skin() -> void:
 		return
 	var tex: Texture2D = load(path)
 	hero_sprite.texture = tex
-	var sc := 84.0 / maxf(1.0, tex.get_height())
+	var sc := 104.0 / maxf(1.0, tex.get_height())
 	hero_sprite.scale = Vector2(sc, sc)
 	hero_sprite.position = Vector2(-tex.get_width() * sc * 0.5, -tex.get_height() * sc)
 
@@ -1410,14 +1464,13 @@ func _make_enemy(e: Dictionary) -> Node2D:
 	var root := Node2D.new()
 	var r: float = e["r"]
 	var col: Color = e["color"]
-	root.add_child(_shadow(r * 2.6))
+	root.add_child(_shadow(r * 3.0))
 	if e["boss"]:
-		var ba := _gen_sprite("glow", Vector2(0, -r), Color(col.r, col.g * 0.5, col.b * 0.5, 0.26))
+		var ba := _light(Vector2(0, -r), r / 80.0, Color(col.r, col.g * 0.5, col.b * 0.5, 0.34))
 		if ba.texture != null:
-			ba.scale = Vector2(r / 95.0, r / 95.0)
 			root.add_child(ba)
 	# Kenney CC0 픽셀 스프라이트 우선, 없으면 절차적 도형
-	var spr := _pixel_sprite(String(e.get("sprite", "")), r * 2.3, e.get("tint", Color.WHITE))
+	var spr := _pixel_sprite(String(e.get("sprite", "")), r * 2.7, e.get("tint", Color.WHITE))
 	if spr != null:
 		root.add_child(spr)
 		return root
@@ -2104,25 +2157,58 @@ func _new_panel(rect: Rect2, col: Color) -> Panel:
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = col
-	sb.set_corner_radius_all(14)
+	sb.set_corner_radius_all(16)
 	sb.border_color = COL_BORDER
 	sb.set_border_width_all(2)
+	sb.border_width_top = 1
+	sb.border_width_bottom = 3            # 아래 두껍게 → 입체감
+	sb.shadow_color = COL_SHADOW
+	sb.shadow_size = 8                    # 소프트 드롭 섀도우 → 배경에서 떠 보임
+	sb.shadow_offset = Vector2(0, 4)
+	sb.content_margin_left = 14
+	sb.content_margin_right = 14
+	sb.content_margin_top = 10
+	sb.content_margin_bottom = 10
 	p.add_theme_stylebox_override("panel", sb)
 	return p
 
 
+# 입체 베벨 버튼 스타일박스 한 장.
+func _btn_box(bg: Color, top_bevel: bool) -> StyleBoxFlat:
+	var s := StyleBoxFlat.new()
+	s.bg_color = bg
+	s.set_corner_radius_all(12)
+	s.border_color = COL_BORDER
+	s.set_border_width_all(2)
+	s.border_width_bottom = 4
+	if top_bevel:
+		s.border_width_top = 1
+	s.expand_margin_top = 0.0
+	s.content_margin_left = 12
+	s.content_margin_right = 12
+	s.content_margin_top = 8
+	s.content_margin_bottom = 8
+	s.shadow_color = COL_SHADOW
+	s.shadow_size = 5
+	s.shadow_offset = Vector2(0, 3)
+	return s
+
+
 func _style_button(b: Button) -> void:
-	var normal := StyleBoxFlat.new()
-	normal.bg_color = COL_PANEL_HI
-	normal.set_corner_radius_all(12)
-	normal.border_color = COL_BORDER
-	normal.set_border_width_all(2)
-	var hover := normal.duplicate()
-	hover.bg_color = Color(0.28, 0.22, 0.40)
+	var normal := _btn_box(COL_BTN, true)
+	var hover := _btn_box(COL_BTN_HI, true)
+	var pressed := _btn_box(COL_BTN_HI.darkened(0.1), false)
+	pressed.border_width_bottom = 2
+	pressed.shadow_size = 2
+	var disabled := _btn_box(Color(0.14, 0.12, 0.20), true)
+	disabled.border_color = Color(0.30, 0.27, 0.40)
 	b.add_theme_stylebox_override("normal", normal)
 	b.add_theme_stylebox_override("hover", hover)
-	b.add_theme_stylebox_override("pressed", hover)
+	b.add_theme_stylebox_override("pressed", pressed)
+	b.add_theme_stylebox_override("disabled", disabled)
 	b.add_theme_color_override("font_color", COL_TEXT)
+	b.add_theme_color_override("font_hover_color", Color(1, 1, 1))
+	b.add_theme_color_override("font_disabled_color", Color(0.5, 0.47, 0.6))
 	b.pressed.connect(_btn_pop.bind(b))
 
 
