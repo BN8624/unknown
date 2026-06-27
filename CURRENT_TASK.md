@@ -1,33 +1,39 @@
 # CURRENT TASK
 
-- Task: 없음 (TASK 017 완료, Issue #4 닫음)
-- GitHub Issue: 다음 작업 TASK 018은 새 Issue로 시작 예정
-- 상태: 대기 중 — TASK 017 아이폰 확인 완료("잘 됨"). 다음은 TASK 018(UI 재배치).
-- 정본: 현재 열린 GitHub Issue (없으면 VERTICAL_SLICE.md + HANDOFF.md)
+- Task: TASK 018 — 모바일 UI 재배치
+- GitHub Issue: #5 (정본) — https://github.com/BN8624/unknown/issues/5
+- 상태: **진행 중 / 미커밋.** 상단 재배치 완료·검증 통과·빌드됨. 사용자 방향 확인 + 나머지 항목 결정 대기.
+- 정본: GitHub Issue #5 / 화풍은 ART_STYLE_GUIDE.md
+- ⚠ 다음 세션: 먼저 `git status`로 미커밋 변경(아래) 확인할 것.
 
-> 아래는 방금 완료한 TASK 017 요약(참고). 다음 작업 시작 시 이 파일을 새 Issue 내용으로 덮어쓴다.
+> GPT에게 Issue 줄 때 평문 URL은 CLAUDE.md 참조(본문/댓글/특정댓글/raw).
 
 ---
 
-## 적용 완료 (SD 전신, 동작 변화 0)
+## 완료한 것 (미커밋, working tree에 있음)
 
-- 적 4종을 `Sprite2D`로 교체. `ENEMY_TEX`/`ENEMY_DISP_H` 매핑으로 `_build_enemy` 일반화, 보스는 `_spawn_boss`에 `BRUNO_TEX`.
-- 표시 높이: 고블린 82 · 방패병 120 · 오우거 154 · 브루노 170 (크기 순서 고블린<늑대·방패병<용병<오우거<브루노). 발은 `CHAR_FOOT_Y 660` 공통.
-- 특수 무기 도형(방패·몽둥이·철퇴)은 텍스처 있으면 **숨김**(텍스처에 포함), 누락 시 도형 폴백.
-- 모든 적 왼쪽(용병) 바라봄. 전투 판정·수치·등장 순서·저장 변경 없음.
+상단 UI를 게임 화면처럼 정리. `Battle.gd`만 수정(전투·수치·저장·아트·등장순서 불변).
+- 줄1 (y10): `status_label` "Lv N   골드 G" (fs26) + `trait_button`(우, 388,8 / 136×46)
+- 줄2 (y46): EXP 바 풀폭(508×16)
+- 줄3 (y70): `boss_progress_label` "빚 … 명성 … · 보스진행"(fs19)
+- 줄4 (y96): `trait_status_label` 특성 포인트(fs18)
+- **제거**: 용병HP·공격·방어·적HP 상단 텍스트 → HP 바·강화 버튼·적 이름표에 이미 표시(정보 손실 없음).
+- 보스 UI(168~272)는 보스전만, 상단(0~120)과 비겹침 — 변경 안 함.
+- 함수: `_build_status_label`·`_build_exp_bar`·`_build_boss_progress_label`·`_build_trait_ui`(위치), `_update_status`("Lv N 골드 G", exp_fill 504폭), `_update_boss_progress`(원래 형식 유지 — TASK_010 검증 통과 위해 골드 안 넣음).
 
-## 검증
-- `--shot` 6장 캡처(기본·레벨업·고블린무리·방패병·오우거·브루노) — SD 표시·크기 순서·발 접촉·체력바·패널 비겹침 확인.
-- 헤드리스 `--verify`: ALL PASS TASK_001~014(종료 0), SCRIPT ERROR 0. Web 빌드 정상(14.3MB).
+## 검증 (완료분)
+- `--verify` **ALL PASS TASK_001~014**(종료 0). (주의: `_verify_debt_fame`가 `boss_progress_label.text`를 고정 비교 → 그 형식 바꾸면 FAIL. 골드는 `status_label`에 넣어 회피함.)
+- `--shot` 6장(기본·레벨업·고블린·방패병·오우거·브루노) 상단 UI 확인. Web 빌드 종료 0, 서버 8443 200.
 
-## 신규 에셋
-```
-assets/characters/ goblin.png  shield.png  ogre.png  bruno.png  (모두 RGBA 투명, 1254×1254)
-```
-
-## 남은 것 (아이폰 확인 → TASK 018)
-- 고블린 무리·방패병·오우거·브루노 SD 표시, 오우거 강공격 준비·브루노 방어 태세·자세 붕괴 구분, 무기 끝·UI 충돌 여부.
-- 다음: UI 재배치 018, 사운드 019, 외형 승급 020.
+## 다음 액션 (이어서 할 일)
+1. **사용자 방향 확인 대기** — 상단 배치(레벨·골드 / EXP바 / 빚·명성) OK인지.
+2. **미결정 항목**(사용자 답 따라):
+   - Issue 요구 나머지 `--shot` 장면: 보스 **방어 태세·자세 붕괴**, **강화 불가** 상태, **상세 패널 열림**. (보스 상태는 `_shot_force` + 상태 강제 트리거 필요.)
+   - 별도 `[상세]` 패널을 만들지(현재는 강화 버튼이 공격/체력/방어 현재값 표시로 대체). 최소 변경 원칙상 안 만듦.
+3. 방향 확정 후 → 커밋·푸시 → Issue #5 보고(변경파일/UI배치/보스UI/shot목록/verify/빌드URL/아이폰/잔여미감/다음TASK) → 아이폰 확인 → Issue 닫기.
 
 ## 아이폰
-`https://node.tail3e9e21.ts.net:8443/?v=17`
+`https://node.tail3e9e21.ts.net:8443/?v=18`
+
+## 이후 TASK
+019 사운드(필수 9종, AudioHooks 뒤 실제 음원) → 020 외형 승급(브루노 처치 후 철검+가죽, boss_defeated 연동) → 021 슬라이스 전체 아이폰 검증.

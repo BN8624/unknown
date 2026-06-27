@@ -2214,23 +2214,25 @@ func _apply_font_recursive(node: Node) -> void:
 
 
 func _build_status_label() -> void:
+	# 줄1 좌측: 레벨(우측에 EXP 바). 세부 능력치는 강화 버튼·HP 바로 이동.
 	status_label = Label.new()
-	status_label.position = Vector2(16, 12)
-	status_label.add_theme_font_size_override("font_size", 22)
+	status_label.position = Vector2(16, 10)
+	status_label.add_theme_font_size_override("font_size", 26)
 	add_child(status_label)
 
 
 func _build_exp_bar() -> void:
+	# 줄2 풀폭 EXP 바
 	exp_bg = ColorRect.new()
 	exp_bg.color = Color(0, 0, 0, 0.5)
 	exp_bg.size = Vector2(508, 16)
-	exp_bg.position = Vector2(16, 92)
+	exp_bg.position = Vector2(16, 46)
 	add_child(exp_bg)
 
 	exp_fill = ColorRect.new()
 	exp_fill.color = Color(0.55, 0.45, 0.95)   # 체력 바(초록/노랑)와 구분되는 보라
 	exp_fill.size = Vector2(0, 12)
-	exp_fill.position = Vector2(18, 94)
+	exp_fill.position = Vector2(18, 48)
 	add_child(exp_fill)
 
 
@@ -2330,8 +2332,8 @@ func _ignore_decorative_mouse() -> void:
 func _build_boss_progress_label() -> void:
 	# 상단 한 줄로 빚·명성·보스 진행을 함께 표시(기존 상태 두 줄 아래, 경험치 바 위).
 	boss_progress_label = Label.new()
-	boss_progress_label.position = Vector2(16, 68)
-	boss_progress_label.add_theme_font_size_override("font_size", 18)
+	boss_progress_label.position = Vector2(16, 70)
+	boss_progress_label.add_theme_font_size_override("font_size", 19)
 	boss_progress_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.55))
 	add_child(boss_progress_label)
 
@@ -2428,11 +2430,9 @@ func _update_boss_progress() -> void:
 func _update_status() -> void:
 	if status_label == null:
 		return
-	var enemy_hp := 0
-	if not enemy.is_empty():
-		enemy_hp = enemy.hp
+	# 상단 줄1: 레벨·골드. 용병HP·공격·방어·적HP는 HP 바·강화 버튼·적 이름표에 표시되므로 상단 텍스트에서 제외.
 	var need := _exp_to_next(level)
-	status_label.text = "레벨 %d   EXP %d/%d   골드 %d   처치 %d\n용병 HP %d/%d   공격 %d   방어 %d   적 HP %d" % [level, exp, need, gold, kill_count, merc.hp, merc.max_hp, merc.atk, merc.defense, enemy_hp]
+	status_label.text = "Lv %d   골드 %d" % [level, gold]
 	if exp_fill != null:
 		exp_fill.size.x = 504.0 * clampf(float(exp) / float(need), 0.0, 1.0)
 	_update_boss_progress()
@@ -2789,14 +2789,14 @@ func _do_def_upgrade() -> void:
 # ── 특성 UI (TASK_005) ───────────────────────────────────────────
 func _build_trait_ui() -> void:
 	trait_status_label = Label.new()
-	trait_status_label.position = Vector2(20, 120)
-	trait_status_label.add_theme_font_size_override("font_size", 22)
+	trait_status_label.position = Vector2(16, 96)
+	trait_status_label.add_theme_font_size_override("font_size", 18)
 	add_child(trait_status_label)
 
 	trait_button = Button.new()
-	trait_button.position = Vector2(372, 114)
-	trait_button.size = Vector2(148, 50)
-	trait_button.add_theme_font_size_override("font_size", 22)
+	trait_button.position = Vector2(388, 6)
+	trait_button.size = Vector2(136, 34)   # 줄1 안에 들어가게(아래 EXP 바 y=46과 안 겹침)
+	trait_button.add_theme_font_size_override("font_size", 20)
 	trait_button.pressed.connect(_toggle_trait_panel)
 	add_child(trait_button)
 
