@@ -18,6 +18,7 @@ static func save(state: Dictionary) -> void:
 		"region_cleared": bool(state.get("region_cleared", false)),
 		"souls": int(state.get("souls", 0)),
 		"prestige_count": int(state.get("prestige_count", 0)),
+		"soul_upgrades": state.get("soul_upgrades", {}),
 		"last_save_unix": int(Time.get_unix_time_from_system()),
 	}
 	var f := FileAccess.open(PATH, FileAccess.WRITE)
@@ -45,6 +46,10 @@ static func load_state() -> Dictionary:
 	var upgrades := {}
 	for id in ["atk", "hp", "def", "crit", "gold"]:
 		upgrades[id] = int(up_in.get(id, 0)) if typeof(up_in) == TYPE_DICTIONARY else 0
+	var su_in = parsed.get("soul_upgrades", {})
+	var soul_upgrades := {}
+	for id in ["s_atk", "s_gold", "s_hp", "s_off"]:
+		soul_upgrades[id] = int(su_in.get(id, 0)) if typeof(su_in) == TYPE_DICTIONARY else 0
 	return {
 		"level": maxi(1, int(parsed.get("level", 1))),
 		"exp": maxi(0, int(parsed.get("exp", 0))),
@@ -56,6 +61,7 @@ static func load_state() -> Dictionary:
 		"region_cleared": bool(parsed.get("region_cleared", false)),
 		"souls": maxi(0, int(parsed.get("souls", 0))),
 		"prestige_count": maxi(0, int(parsed.get("prestige_count", 0))),
+		"soul_upgrades": soul_upgrades,
 		"last_save_unix": int(parsed.get("last_save_unix", 0)),
 	}
 

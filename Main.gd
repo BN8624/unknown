@@ -34,7 +34,11 @@ var region_cleared := false
 var souls := 0                # 환생 재화(균열석)
 var prestige_count := 0
 var last_save_unix := 0
-var p_global_mult := 1.0      # 균열석 영구 배수
+var soul_upgrades := {"s_atk": 0, "s_gold": 0, "s_hp": 0, "s_off": 0}
+var p_global_mult := 1.0      # 균열석 영구 배수(전투력)
+var p_gold_mult := 1.0        # 균열석 + 상점 골드 배수
+var p_off_eff := 0.6          # 오프라인 효율
+var p_power := 0              # 전투력(표시용)
 
 # ── 파생 능력치 ──────────────────────────────────────────────────
 var p_atk := 10
@@ -139,10 +143,26 @@ func _save_shot(tag: String) -> void:
 
 
 # ── 배경 ─────────────────────────────────────────────────────────
+var sky_grad: Gradient
+
+# 5층 구간마다 하늘 색을 살짝 바꿔 전진하는 느낌을 준다.
+const SKY_TONES := [
+	Color(0.18, 0.14, 0.30), Color(0.12, 0.18, 0.30), Color(0.20, 0.13, 0.22),
+	Color(0.10, 0.20, 0.22), Color(0.22, 0.16, 0.14), Color(0.16, 0.12, 0.26),
+]
+
+func _update_sky() -> void:
+	if sky_grad == null:
+		return
+	var tier := int((stage - 1) / GameData.BOSS_EVERY)
+	sky_grad.set_color(1, SKY_TONES[tier % SKY_TONES.size()])
+
+
 func _build_background() -> void:
 	var grad := Gradient.new()
 	grad.set_color(0, COL_BG_TOP)
 	grad.set_color(1, COL_BG_BOT)
+	sky_grad = grad
 	var gt := GradientTexture2D.new()
 	gt.gradient = grad
 	gt.fill_from = Vector2(0, 0)
@@ -407,46 +427,60 @@ func _build_settings_overlay() -> void:
 	settings_overlay.add_child(close_btn)
 
 
-# ── 환생(프레스티지) 오버레이 ────────────────────────────────────
+# ── 환생(프레스티지) + 균열석 상점 오버레이 ──────────────────────
+var soul_rows := {}
+var prestige_confirming := false
+
 func _build_prestige_overlay() -> void:
 	prestige_overlay = Control.new()
 	prestige_overlay.size = GameData.SCREEN
 	prestige_overlay.visible = false
 	add_child(prestige_overlay)
 	var dim := ColorRect.new()
-	dim.color = Color(0, 0, 0, 0.62)
+	dim.color = Color(0, 0, 0, 0.7)
 	dim.size = GameData.SCREEN
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	prestige_overlay.add_child(dim)
-	var box := _new_panel(Rect2(50, 300, 440, 360), COL_PANEL_HI)
+	var box := _new_panel(Rect2(34, 120, 472, 720), COL_PANEL_HI)
 	prestige_overlay.add_child(box)
-	var t := _new_label("환생", 34, Color(0.82, 0.74, 1.0))
-	t.position = Vector2(50, 326)
-	t.size = Vector2(440, 44)
+	var t := _new_label("환생 · 균열석 상점", 30, Color(0.82, 0.74, 1.0))
+	t.position = Vector2(34, 142)
+	t.size = Vector2(472, 40)
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	prestige_overlay.add_child(t)
-	prestige_body = _new_label("", 20, COL_TEXT)
-	prestige_body.position = Vector2(78, 384)
-	prestige_body.size = Vector2(384, 170)
+	prestige_body = _new_label("", 19, COL_TEXT)
+	prestige_body.position = Vector2(50, 190)
+	prestige_body.size = Vector2(440, 60)
 	prestige_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	prestige_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	prestige_overlay.add_child(prestige_body)
 
+	# 균열석 상점(영구 강화, 환생해도 유지)
+	var y := 264.0
+	for udef in GameData.SOUL_UPGRADES:
+		_make_soul_row(udef, y)
+		y += 62.0
+
+	var div := _new_label("— 환생하면 균열석을 얻고 진행은 초기화됩니다 —", 15, COL_DIM)
+	div.position = Vector2(34, 540)
+	div.size = Vector2(472, 22)
+	div.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	prestige_overlay.add_child(div)
+
 	prestige_do_btn = Button.new()
-	prestige_do_btn.position = Vector2(110, 560)
-	prestige_do_btn.size = Vector2(320, 54)
+	prestige_do_btn.position = Vector2(70, 576)
+	prestige_do_btn.size = Vector2(400, 60)
 	prestige_do_btn.add_theme_font_size_override("font_size", 22)
 	_style_button(prestige_do_btn)
-	var confirming := {"v": false}
 	prestige_do_btn.pressed.connect(func() -> void:
 		var gain := GameData.souls_for(max_stage_cleared)
 		if gain <= 0:
 			return
-		if not confirming["v"]:
-			confirming["v"] = true
-			prestige_do_btn.text = "정말 환생? 한 번 더"
+		if not prestige_confirming:
+			prestige_confirming = true
+			prestige_do_btn.text = "정말 환생? 한 번 더 누르기"
 		else:
-			confirming["v"] = false
+			prestige_confirming = false
 			_play("boss_victory")
 			_do_prestige(gain)
 			prestige_overlay.visible = false)
@@ -454,30 +488,79 @@ func _build_prestige_overlay() -> void:
 
 	var pclose_btn := Button.new()
 	pclose_btn.text = "닫기"
-	pclose_btn.position = Vector2(110, 622)
-	pclose_btn.size = Vector2(320, 44)
+	pclose_btn.position = Vector2(70, 648)
+	pclose_btn.size = Vector2(400, 48)
 	pclose_btn.add_theme_font_size_override("font_size", 19)
 	_style_button(pclose_btn)
 	pclose_btn.pressed.connect(func() -> void:
-		confirming["v"] = false
+		prestige_confirming = false
 		prestige_overlay.visible = false)
 	prestige_overlay.add_child(pclose_btn)
 
 
+func _make_soul_row(udef: Dictionary, y: float) -> void:
+	var id: String = udef["id"]
+	var panel := _new_panel(Rect2(50, y, 440, 54), COL_PANEL)
+	prestige_overlay.add_child(panel)
+	var name_lbl := _new_label("", 18, COL_TEXT)
+	name_lbl.position = Vector2(66, y + 7)
+	prestige_overlay.add_child(name_lbl)
+	var eff_lbl := _new_label("", 14, COL_DIM)
+	eff_lbl.position = Vector2(66, y + 30)
+	prestige_overlay.add_child(eff_lbl)
+	var cost_lbl := _new_label("", 18, Color(0.82, 0.74, 1.0))
+	cost_lbl.position = Vector2(300, y + 16)
+	cost_lbl.size = Vector2(174, 24)
+	cost_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	prestige_overlay.add_child(cost_lbl)
+	var btn := Button.new()
+	btn.flat = true
+	btn.position = Vector2(50, y)
+	btn.size = Vector2(440, 54)
+	btn.pressed.connect(_on_soul_pressed.bind(id))
+	prestige_overlay.add_child(btn)
+	soul_rows[id] = {"panel": panel, "name": name_lbl, "eff": eff_lbl, "cost": cost_lbl, "button": btn}
+
+
+func _on_soul_pressed(id: String) -> void:
+	var udef := GameData.soul_upgrade_def(id)
+	var cost := GameData.soul_upgrade_cost(udef, _soul_lv(id))
+	if souls < cost:
+		return
+	_play("button")
+	souls -= cost
+	soul_upgrades[id] = _soul_lv(id) + 1
+	_recompute_stats()
+	p_hp = mini(p_hp + 0, p_max_hp)
+	_save()
+	_update_hud()
+	_update_growth_buttons()
+	_open_prestige()   # 상점 표시 갱신
+
+
 func _open_prestige() -> void:
 	var gain := GameData.souls_for(max_stage_cleared)
-	var cur_mult := GameData.global_mult(souls)
-	var next_mult := GameData.global_mult(souls + gain)
-	var body := "보유 %s ◆ %d  (전투력·골드 x%.2f)\n\n" % [GameData.SOUL_NAME, souls, cur_mult]
+	prestige_confirming = false
+	var head := "보유 균열석 ◆ %d   전투력 x%.2f · 골드 x%.2f" % [souls, p_global_mult, p_gold_mult]
+	prestige_body.text = head
+	for udef in GameData.SOUL_UPGRADES:
+		var id: String = udef["id"]
+		var lv := _soul_lv(id)
+		var cost := GameData.soul_upgrade_cost(udef, lv)
+		var row: Dictionary = soul_rows[id]
+		row["name"].text = "%s  Lv %d" % [udef["name"], lv]
+		var pct := int(round(float(udef["per"]) * 100))
+		row["eff"].text = "%s +%d%% / 레벨" % [udef["desc"], pct]
+		row["cost"].text = "◆ %d" % cost
+		var afford := souls >= cost
+		row["button"].disabled = not afford
+		row["panel"].modulate = Color(1, 1, 1, 1) if afford else Color(0.6, 0.6, 0.66, 1)
 	if gain > 0:
-		body += "지금 환생하면 %s ◆ %d 획득\n→ 배수 x%.2f\n\n레벨·골드·강화·층은 초기화됩니다." % [GameData.SOUL_NAME, gain, next_mult]
 		prestige_do_btn.disabled = false
 		prestige_do_btn.text = "환생하고 ◆%d 받기" % gain
 	else:
-		body += "%d층(첫 보스)을 넘으면 환생할 수 있습니다.\n조금 더 전진해 보세요." % GameData.SOUL_MIN_STAGE
 		prestige_do_btn.disabled = true
-		prestige_do_btn.text = "아직 환생 불가"
-	prestige_body.text = body
+		prestige_do_btn.text = "%d층 넘으면 환생 가능" % GameData.SOUL_MIN_STAGE
 	prestige_overlay.visible = true
 	if kfont != null:
 		_apply_font_to(prestige_overlay)
@@ -512,7 +595,7 @@ func _grant_offline(s: Dictionary) -> void:
 	var ehp := float(GameData.enemy_hp(stage))
 	var kills_per_sec: float = clampf(dps / maxf(1.0, ehp), 0.0, 3.0)
 	var gold_per_sec := kills_per_sec * float(_gold_gain(GameData.enemy_gold(stage)))
-	var reward := int(round(gold_per_sec * elapsed * GameData.OFFLINE_EFFICIENCY))
+	var reward := int(round(gold_per_sec * elapsed * p_off_eff))
 	if reward <= 0:
 		return
 	gold += reward
@@ -643,6 +726,7 @@ func _spawn_enemy() -> void:
 
 	if enemy["boss"]:
 		_play("boss_appear")
+	_update_sky()
 	e_atk_timer = 0.0
 	_update_progress()
 
@@ -789,19 +873,29 @@ func _on_upgrade_pressed(id: String) -> void:
 
 func _recompute_stats() -> void:
 	var b: Dictionary = GameData.PLAYER_BASE
-	p_global_mult = GameData.global_mult(souls)
+	var passive := GameData.global_mult(souls)
+	var atk_mult := passive * (1.0 + _soul_lv("s_atk") * float(GameData.soul_upgrade_def("s_atk")["per"]))
+	p_gold_mult = passive * (1.0 + _soul_lv("s_gold") * float(GameData.soul_upgrade_def("s_gold")["per"]))
+	var hp_mult := 1.0 + _soul_lv("s_hp") * float(GameData.soul_upgrade_def("s_hp")["per"])
+	p_off_eff = clampf(GameData.OFFLINE_EFFICIENCY + _soul_lv("s_off") * float(GameData.soul_upgrade_def("s_off")["per"]), 0.0, 0.95)
+	p_global_mult = atk_mult
 	var raw_atk: int = int(b["atk"]) + (level - 1) * GameData.LVL_ATK + upgrades["atk"] * GameData.upgrade_def("atk")["per"]
-	p_atk = int(round(raw_atk * p_global_mult))
-	p_max_hp = int(b["hp"]) + (level - 1) * GameData.LVL_HP + upgrades["hp"] * GameData.upgrade_def("hp")["per"]
+	p_atk = int(round(raw_atk * atk_mult))
+	p_max_hp = int(round((int(b["hp"]) + (level - 1) * GameData.LVL_HP + upgrades["hp"] * GameData.upgrade_def("hp")["per"]) * hp_mult))
 	p_def = int(b["def"]) + upgrades["def"] * GameData.upgrade_def("def")["per"]
 	p_crit = float(b["crit"]) + upgrades["crit"] * GameData.upgrade_def("crit")["per"]
 	p_interval = float(b["atk_interval"])
 	p_hp = mini(p_hp, p_max_hp)
+	p_power = int(round(p_atk / p_interval * (1.0 + p_crit) + p_max_hp * 0.4 + p_def * 6.0))
+
+
+func _soul_lv(id: String) -> int:
+	return int(soul_upgrades.get(id, 0))
 
 
 func _gold_gain(base: int) -> int:
 	var bonus: float = 1.0 + int(upgrades["gold"]) * float(GameData.upgrade_def("gold")["per"])
-	return int(round(base * bonus * p_global_mult))
+	return int(round(base * bonus * p_gold_mult))
 
 
 func _gain_exp(amount: int) -> void:
@@ -823,10 +917,10 @@ func _update_hud() -> void:
 	lbl_stage.text = depth
 	var need := GameData.exp_to_next(level)
 	exp_fill.size.x = 500.0 * clampf(float(exp) / float(need), 0.0, 1.0)
+	var line := "전투력 %s" % _fmt(p_power)
 	if souls > 0 or prestige_count > 0:
-		lbl_souls.text = "%s ◆ %d   전투력 x%.2f" % [GameData.SOUL_NAME, souls, p_global_mult]
-	else:
-		lbl_souls.text = ""
+		line += "   ·   %s ◆ %d" % [GameData.SOUL_NAME, souls]
+	lbl_souls.text = line
 	_update_hero_hp()
 
 
@@ -931,7 +1025,7 @@ func _state_dict() -> Dictionary:
 		"level": level, "exp": exp, "gold": gold, "upgrades": upgrades,
 		"stage": stage, "kills": kills,
 		"max_stage_cleared": max_stage_cleared, "region_cleared": region_cleared,
-		"souls": souls, "prestige_count": prestige_count,
+		"souls": souls, "prestige_count": prestige_count, "soul_upgrades": soul_upgrades,
 	}
 
 
@@ -952,6 +1046,9 @@ func _apply_save(s: Dictionary) -> void:
 	souls = int(s.get("souls", 0))
 	prestige_count = int(s.get("prestige_count", 0))
 	last_save_unix = int(s.get("last_save_unix", 0))
+	var su = s.get("soul_upgrades", {})
+	for id in soul_upgrades.keys():
+		soul_upgrades[id] = int(su.get(id, 0)) if typeof(su) == TYPE_DICTIONARY else 0
 
 
 func _reset_progress() -> void:
@@ -960,6 +1057,7 @@ func _reset_progress() -> void:
 	upgrades = {"atk": 0, "hp": 0, "def": 0, "crit": 0, "gold": 0}
 	stage = 1; kills = 0; max_stage_cleared = 0; region_cleared = false
 	souls = 0; prestige_count = 0
+	soul_upgrades = {"s_atk": 0, "s_gold": 0, "s_hp": 0, "s_off": 0}
 	_recompute_stats()
 	p_hp = p_max_hp
 	busy = false
@@ -970,16 +1068,28 @@ func _reset_progress() -> void:
 
 
 # ── 작은 헬퍼 ────────────────────────────────────────────────────
+const _SUFFIX := ["", "K", "M", "B", "T", "aa", "ab", "ac", "ad", "ae", "af", "ag"]
+
+# 큰 수는 K·M·B·T·aa… 로 줄여 표시(방치형 누적에 대응). 10만 미만은 천 단위 콤마.
 func _fmt(n: int) -> String:
-	var s := str(n)
-	var out := ""
-	var c := 0
-	for i in range(s.length() - 1, -1, -1):
-		out = s[i] + out
-		c += 1
-		if c % 3 == 0 and i > 0:
-			out = "," + out
-	return out
+	if n < 100000:
+		var s := str(n)
+		var out := ""
+		var c := 0
+		for i in range(s.length() - 1, -1, -1):
+			out = s[i] + out
+			c += 1
+			if c % 3 == 0 and i > 0:
+				out = "," + out
+		return out
+	var tier := 0
+	var v := float(n)
+	while v >= 1000.0 and tier < _SUFFIX.size() - 1:
+		v /= 1000.0
+		tier += 1
+	if v >= 100.0:
+		return "%.0f%s" % [v, _SUFFIX[tier]]
+	return "%.2f%s" % [v, _SUFFIX[tier]]
 
 
 func _new_label(text: String, fs: int, col: Color) -> Label:

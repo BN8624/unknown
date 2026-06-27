@@ -124,6 +124,23 @@ static func souls_for(max_stage_cleared: int) -> int:
 static func global_mult(souls: int) -> float:
 	return 1.0 + souls * SOUL_PER_MULT
 
+# 균열석 상점(환생해도 유지되는 영구 강화). per=레벨당 효과, cost/mult=균열석 비용.
+const SOUL_UPGRADES := [
+	{"id": "s_atk",  "name": "예리함",     "desc": "공격력",       "per": 0.06, "cost": 2, "mult": 1.6},
+	{"id": "s_gold", "name": "탐욕",       "desc": "골드 획득",    "per": 0.10, "cost": 2, "mult": 1.6},
+	{"id": "s_hp",   "name": "불굴",       "desc": "체력",         "per": 0.10, "cost": 3, "mult": 1.7},
+	{"id": "s_off",  "name": "잠든 부대",  "desc": "오프라인 효율","per": 0.12, "cost": 4, "mult": 1.8},
+]
+
+static func soul_upgrade_def(id: String) -> Dictionary:
+	for u in SOUL_UPGRADES:
+		if u["id"] == id:
+			return u
+	return {}
+
+static func soul_upgrade_cost(udef: Dictionary, level: int) -> int:
+	return int(round(float(udef["cost"]) * pow(float(udef["mult"]), level)))
+
 # ── 오프라인 보상 ────────────────────────────────────────────────
 const OFFLINE_CAP_SEC := 8 * 3600   # 최대 8시간 정산
 const OFFLINE_EFFICIENCY := 0.6     # 활동 대비 효율

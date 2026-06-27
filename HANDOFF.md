@@ -4,7 +4,8 @@
 
 ## ⚡ RESET 001 (2026-06-27 이후 정본)
 
-**프로젝트를 백지에서 새 게임으로 리셋함.** 정본 = `PRODUCT_RESET_SPEC.md`. 새 게임 **「균열기사」**(세로형 방치 RPG v0.1): `Main.tscn`/`Main.gd`(화면·전투·성장·스테이지·보스·보상·저장) + `reset/GameData.gd`(밸런스·콘텐츠) + `reset/SaveSystem.gd`(저장). 메인 씬을 `Main.tscn`으로 교체. 도형 아트(AI/PNG 없음). 골드·레벨·강화 5종·20스테이지·5층마다 보스·저장/불러오기·설정 초기화·Web 빌드 동작 확인. **오프라인 보상(최대 8h·효율 0.6)·환생(균열석 영구 배수)·사운드(기존 assets/sfx 재사용) 추가됨.** 기존 `Battle.gd`·`assets/`·옛 TASK 문서는 **비활성 이력**(삭제 안 함, 현재 지시 아님). 아래 옛 TASK 내용은 리셋 이전 기록.
+**프로젝트를 백지에서 새 게임으로 리셋함.** 정본 = `PRODUCT_RESET_SPEC.md`. 새 게임 **「균열기사」**(세로형 방치 RPG v0.1): `Main.tscn`/`Main.gd`(화면·전투·성장·스테이지·보스·보상·저장) + `reset/GameData.gd`(밸런스·콘텐츠) + `reset/SaveSystem.gd`(저장). 메인 씬을 `Main.tscn`으로 교체. 도형 아트(AI/PNG 없음). 골드·레벨·강화 5종·20스테이지·5층마다 보스·저장/불러오기·설정 초기화·Web 빌드 동작 확인. **오프라인 보상(최대 8h)·환생(균열석)·사운드·균열석 상점(영구 강화 4종)·큰수 표기(K/M/B)·전투력 표시·층별 배경 톤 추가.** 출시 후보 상태.
+⚠ Web 페이지 `<title>`는 export 시 프로젝트명("unknown", user:// 경로라 변경 불가)로 리셋됨 → **export 후 `build/index.html` title을 "균열기사"로 패치**해야 함(현재 패치됨). 정식 출시 시 export 프리셋에 custom HTML shell 권장. 기존 `Battle.gd`·`assets/`·옛 TASK 문서는 **비활성 이력**(삭제 안 함, 현재 지시 아님). 아래 옛 TASK 내용은 리셋 이전 기록.
 
 ---
 
