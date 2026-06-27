@@ -5,9 +5,6 @@ const GameData := preload("res://reset/GameData.gd")
 const SaveSystem := preload("res://reset/SaveSystem.gd")
 
 # ── 팔레트 ───────────────────────────────────────────────────────
-const COL_BG_TOP := Color(0.10, 0.08, 0.18)
-const COL_BG_BOT := Color(0.18, 0.14, 0.30)
-const COL_GROUND := Color(0.22, 0.17, 0.12)
 const COL_PANEL := Color(0.14, 0.11, 0.22, 0.96)
 const COL_PANEL_HI := Color(0.20, 0.16, 0.30, 0.98)
 const COL_BORDER := Color(0.40, 0.33, 0.58)
@@ -221,24 +218,17 @@ func _save_shot(tag: String) -> void:
 
 
 # ── 배경 ─────────────────────────────────────────────────────────
-var sky_grad: Gradient
+var bg_layer: TextureRect
 
-# 지역 테마색으로 하늘 아래쪽을 바꿔 전진·지역 변화를 느끼게 한다.
+# 지역에 맞는 던전 배경 이미지로 교체한다.
 func _update_sky() -> void:
-	if sky_grad == null:
+	if bg_layer == null:
 		return
-	var reg := GameData.region_for(stage)
-	var base: Color = reg["sky"]
-	# 지역 안에서도 보스 구간마다 미세하게 밝기 변주
-	var sub := (int((stage - 1) / GameData.BOSS_EVERY) % 2) * 0.02
-	sky_grad.set_color(1, base.lightened(sub))
+	var name := "bg_dungeon" if stage <= GameData.REGIONS[0]["end"] else "bg_dungeon2"
+	var tex := _load_gen(name)
+	if tex != null:
+		bg_layer.texture = tex
 
-
-var rift_glow: Sprite2D
-var mtn_far: Node2D
-var mtn_near: Node2D
-var fog_layer: Sprite2D
-var ground_rect: ColorRect
 
 func _load_gen(name: String) -> Texture2D:
 	var path := "res://assets/gen/%s.png" % name
@@ -254,119 +244,32 @@ func _gen_sprite(name: String, pos: Vector2, modulate := Color.WHITE) -> Sprite2
 	return s
 
 func _build_background() -> void:
-	# 1) 하늘 그라데이션
-	var grad := Gradient.new()
-	grad.set_color(0, COL_BG_TOP)
-	grad.set_color(1, COL_BG_BOT)
-	sky_grad = grad
-	var gt := GradientTexture2D.new()
-	gt.gradient = grad
-	gt.fill_from = Vector2(0, 0)
-	gt.fill_to = Vector2(0, 1)
-	gt.width = int(GameData.SCREEN.x)
-	gt.height = int(GameData.SCREEN.y)
-	var sky := TextureRect.new()
-	sky.texture = gt
-	sky.size = GameData.SCREEN
-	sky.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(sky)
+	# 던전 배경(Kenney 타일로 합성한 벽·바닥·횃불)
+	var base := ColorRect.new()
+	base.color = Color(0.07, 0.06, 0.10)
+	base.size = GameData.SCREEN
+	base.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(base)
 
-	# 2) 별(은은한 반짝임)
-	var stars_tex := _load_gen("stars")
-	if stars_tex != null:
-		var st := TextureRect.new()
-		st.texture = stars_tex
-		st.position = Vector2(0, 0)
-		st.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		add_child(st)
-		var tw := create_tween().set_loops()
-		tw.tween_property(st, "modulate", Color(1, 1, 1, 0.55), 2.2).set_trans(Tween.TRANS_SINE)
-		tw.tween_property(st, "modulate", Color(1, 1, 1, 1.0), 2.2).set_trans(Tween.TRANS_SINE)
+	bg_layer = TextureRect.new()
+	bg_layer.texture = _load_gen("bg_dungeon")
+	bg_layer.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	bg_layer.size = GameData.SCREEN
+	bg_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(bg_layer)
 
-	# 3) 먼 능선 실루엣(2겹 시차 드리프트) — 지평선에 낮게 깔리는 언덕
-	mtn_far = _make_mountains(Color(0.11, 0.10, 0.19), 30.0, 60.0, 9)
-	mtn_far.position = Vector2(0, 0)
-	add_child(mtn_far)
-	_drift(mtn_far, 46.0)
-	mtn_near = _make_mountains(Color(0.15, 0.12, 0.22), 64.0, 46.0, 7)
-	mtn_near.position = Vector2(0, 0)
-	add_child(mtn_near)
-	_drift(mtn_near, 28.0)
+	# 벽 횃불 위치(합성 이미지 기준)에 흔들리는 불빛 글로우
+	for tx in [120.0, 424.0]:
+		var glow := _gen_sprite("glow", Vector2(tx, 322), Color(1.0, 0.55, 0.2, 0.5))
+		if glow.texture != null:
+			glow.scale = Vector2(0.7, 0.7)
+			add_child(glow)
+			var tw := create_tween().set_loops()
+			tw.tween_property(glow, "modulate:a", 0.32, 0.9).set_trans(Tween.TRANS_SINE)
+			tw.tween_property(glow, "modulate:a", 0.55, 1.1).set_trans(Tween.TRANS_SINE)
 
-	# 4) 균열 빛기둥(글로우, 맥동)
-	rift_glow = _gen_sprite("glow", Vector2(GameData.SCREEN.x * 0.5, 300), Color(0.55, 0.42, 0.95, 0.5))
-	if rift_glow.texture != null:
-		rift_glow.scale = Vector2(1.4, 3.2)
-		add_child(rift_glow)
-		var tw := create_tween().set_loops()
-		tw.tween_property(rift_glow, "modulate:a", 0.28, 1.6).set_trans(Tween.TRANS_SINE)
-		tw.tween_property(rift_glow, "modulate:a", 0.55, 1.6).set_trans(Tween.TRANS_SINE)
-
-	# 5) 지면(텍스처)
-	ground_rect = ColorRect.new()
-	ground_rect.color = COL_GROUND
-	ground_rect.size = Vector2(GameData.SCREEN.x, 760 - GROUND_Y)
-	ground_rect.position = Vector2(0, GROUND_Y)
-	ground_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(ground_rect)
-	var gtex := _load_gen("ground")
-	if gtex != null:
-		var gr := TextureRect.new()
-		gr.texture = gtex
-		gr.position = Vector2(0, GROUND_Y)
-		gr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		add_child(gr)
-	var edge := ColorRect.new()
-	edge.color = Color(0.42, 0.34, 0.22)
-	edge.size = Vector2(GameData.SCREEN.x, 3)
-	edge.position = Vector2(0, GROUND_Y)
-	edge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(edge)
-
-	# 6) 안개 띠(수평 드리프트)
-	var fog_tex := _load_gen("fog")
-	if fog_tex != null:
-		fog_layer = Sprite2D.new()
-		fog_layer.texture = fog_tex
-		fog_layer.centered = false
-		fog_layer.position = Vector2(0, GROUND_Y - 150)
-		fog_layer.modulate = Color(0.7, 0.66, 0.85, 0.5)
-		add_child(fog_layer)
-		var tw := create_tween().set_loops()
-		tw.tween_property(fog_layer, "position:x", -30.0, 6.0).set_trans(Tween.TRANS_SINE)
-		tw.tween_property(fog_layer, "position:x", 0.0, 6.0).set_trans(Tween.TRANS_SINE)
-
-	# 7) 떠오르는 잔불(앰비언트 파티클)
+	# 떠오르는 잔불(앰비언트 파티클)
 	_build_ambient_embers()
-
-
-# 톱니 능선 폴리곤 묶음을 만든다(가로로 2배 폭, 드리프트로 무한 반복).
-func _make_mountains(col: Color, base_y: float, height: float, peaks: int) -> Node2D:
-	var root := Node2D.new()
-	var w := GameData.SCREEN.x
-	for rep in range(2):
-		var off := rep * w
-		var pts := PackedVector2Array()
-		pts.append(Vector2(off, GROUND_Y))
-		var step := w / peaks
-		for i in range(peaks + 1):
-			var px := off + i * step
-			var ph := base_y + (sin(i * 1.7 + rep) * 0.5 + 0.5) * height
-			pts.append(Vector2(px, GROUND_Y - ph))
-		pts.append(Vector2(off + w, GROUND_Y))
-		var poly := Polygon2D.new()
-		poly.polygon = pts
-		poly.color = col
-		root.add_child(poly)
-	return root
-
-
-func _drift(node: Node2D, period: float) -> void:
-	var w := GameData.SCREEN.x
-	node.position.x = 0
-	var tw := create_tween().set_loops()
-	tw.tween_property(node, "position:x", -w, period)
-	tw.tween_callback(func() -> void: node.position.x = 0)
 
 
 func _build_ambient_embers() -> void:
@@ -880,8 +783,7 @@ func _setup_audio() -> void:
 		bgm_player.stream = s
 		bgm_player.volume_db = -16.0
 		add_child(bgm_player)
-		if sound_on:
-			bgm_player.play()
+		# 재생은 첫 입력(_unlock_audio)에서 시작 — iOS/브라우저 자동재생 차단 대응
 
 const SFX_VOL := {
 	"slash": -13.0, "hit": -11.0, "crit": -7.0, "level_up": -6.0,
@@ -901,12 +803,24 @@ func _play(name: String) -> void:
 	pl.play()
 
 
+var _audio_unlocked := false
+
+# 브라우저/iOS는 사용자 입력 전 오디오를 막는다. 첫 탭에서 오디오를 깨우고 BGM을 시작한다.
+func _input(event: InputEvent) -> void:
+	if _audio_unlocked:
+		return
+	if (event is InputEventMouseButton or event is InputEventScreenTouch) and event.pressed:
+		_audio_unlocked = true
+		if sound_on and bgm_player != null and not bgm_player.playing:
+			bgm_player.play()
+
+
 func _set_sound(on: bool) -> void:
 	sound_on = on
 	if bgm_player != null:
-		if on:
+		if on and _audio_unlocked:
 			bgm_player.play()
-		else:
+		elif not on:
 			bgm_player.stop()
 
 
@@ -1114,7 +1028,8 @@ func _player_attack() -> void:
 	_play("crit" if crit else "slash")
 	_hit_flash(enemy_node)
 	var hitpos := Vector2(ENEMY_X - enemy["r"] * 0.4, GROUND_Y - enemy["r"])
-	_spawn_hit_burst(hitpos, Color(1.0, 0.85, 0.55, 0.9) if crit else Color(0.9, 0.92, 1.0, 0.8), 10 if crit else 5)
+	_slash_fx(hitpos, crit)
+	_spawn_hit_burst(hitpos, Color(1.0, 0.85, 0.55, 0.9) if crit else Color(0.9, 0.92, 1.0, 0.8), 12 if crit else 6)
 	_float_text(Vector2(ENEMY_X, GROUND_Y - enemy["r"] * 2.0 - 6), str(dmg), COL_GOLD if crit else COL_TEXT, crit)
 	_update_enemy_hp()
 	if int(enemy["hp"]) <= 0:
@@ -1174,6 +1089,24 @@ func _boss_heavy() -> void:
 	boss_winding = false
 	if p_hp <= 0:
 		_player_down()
+
+
+# 타격 순간 흰 베기 섬광(대각선 스트릭). 치명타는 더 크고 노랗게.
+func _slash_fx(pos: Vector2, crit: bool) -> void:
+	var s := Sprite2D.new()
+	s.texture = _load_gen("glow")
+	if s.texture == null:
+		return
+	s.position = pos
+	s.rotation = deg_to_rad(-38)
+	s.modulate = Color(1.0, 0.95, 0.6, 0.95) if crit else Color(1, 1, 1, 0.9)
+	var w: float = 0.95 if crit else 0.7
+	s.scale = Vector2(w * 0.45, 0.05)
+	add_child(s)
+	var tw := create_tween()
+	tw.tween_property(s, "scale", Vector2(w, 0.015), 0.16).set_trans(Tween.TRANS_QUAD)
+	tw.parallel().tween_property(s, "modulate:a", 0.0, 0.16)
+	tw.tween_callback(s.queue_free)
 
 
 # 화면 전체 짧은 색 플래시(보스 강공격 등 임팩트).
