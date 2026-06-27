@@ -76,12 +76,19 @@ var prestige_overlay: Control
 var prestige_body: Label
 var prestige_do_btn: Button
 var lbl_souls: Label
+var mission_btn: Button
+var mission_overlay: Control
+var mission_rows := []
 var save_timer := 0.0
 var sfx_streams := {}
 var sfx_players: Array = []
 var sfx_next := 0
 var sound_on := true
 var seen_intro := false
+var counters := {"kill": 0, "stage": 0, "upgrade": 0, "boss": 0, "gold": 0}
+var missions: Array = []        # 활성 임무 3개: {pool, base}
+var daily_day := 0
+var daily_streak := 0
 
 
 func _ready() -> void:
@@ -95,18 +102,23 @@ func _ready() -> void:
 	_build_reward_overlay()
 	_build_settings_overlay()
 	_build_prestige_overlay()
+	_build_mission_overlay()
 	_setup_audio()
 	var s := SaveSystem.load_state()
 	if not s.is_empty():
 		_apply_save(s)
 	_recompute_stats()
 	p_hp = p_max_hp
+	_ensure_missions()
 	_spawn_enemy()
 	_update_hud()
 	_update_growth_buttons()
+	_refresh_mission_badge()
 	_apply_font()
 	if not _shot_mode and not s.is_empty():
 		_grant_offline(s)
+	if not _shot_mode:
+		_check_daily()
 	if not _shot_mode and not seen_intro:
 		_show_onboarding()
 	if _shot_mode:
@@ -153,6 +165,13 @@ func _run_shot_sequence() -> void:
 	_boss_heavy()                            # 강공격 예열(확대·붉은 경고)
 	await get_tree().create_timer(0.45).timeout
 	_save_shot("r08_bosswindup")
+	# 임무 오버레이(진행도 보이게 카운터 세팅)
+	boss_winding = false
+	counters = {"kill": 137, "stage": 23, "upgrade": 14, "boss": 4, "gold": 88000}
+	missions = []; _ensure_missions(); _refresh_mission_badge()
+	_open_missions()
+	await get_tree().create_timer(0.4).timeout
+	_save_shot("r09_missions")
 	get_tree().quit(0)
 
 var _onboard_ov: Control
@@ -209,6 +228,159 @@ func _show_onboarding() -> void:
 			ov.queue_free()
 		else:
 			refresh.call())
+
+
+# ── 임무(리텐션) ─────────────────────────────────────────────────
+func _ensure_missions() -> void:
+	while missions.size() < 3:
+		var active_types := []
+		for m in missions:
+			active_types.append(GameData.MISSION_POOL[int(m["pool"])]["type"])
+		# 가능하면 현재 활성 임무에 없는 타입을 우선 선택(다양성)
+		var fresh := []
+		for i in range(GameData.MISSION_POOL.size()):
+			if not active_types.has(GameData.MISSION_POOL[i]["type"]):
+				fresh.append(i)
+		var pool := fresh if not fresh.is_empty() else range(GameData.MISSION_POOL.size())
+		var pi: int = pool[randi() % pool.size()]
+		var typ: String = GameData.MISSION_POOL[pi]["type"]
+		missions.append({"pool": pi, "base": int(counters.get(typ, 0))})
+
+
+func _mission_state(m: Dictionary) -> Dictionary:
+	var pdef: Dictionary = GameData.MISSION_POOL[int(m["pool"])]
+	var cur: int = int(counters.get(pdef["type"], 0)) - int(m["base"])
+	var amt: int = int(pdef["amount"])
+	return {"cur": clampi(cur, 0, amt), "amt": amt, "done": cur >= amt, "def": pdef}
+
+
+func _claimable_count() -> int:
+	var n := 0
+	for m in missions:
+		if _mission_state(m)["done"]:
+			n += 1
+	return n
+
+
+func _refresh_mission_badge() -> void:
+	if mission_btn == null:
+		return
+	var n := _claimable_count()
+	mission_btn.text = "임무 ●%d" % n if n > 0 else "임무"
+	if mission_overlay != null and mission_overlay.visible:
+		_refresh_mission_rows()
+
+
+func _build_mission_overlay() -> void:
+	mission_overlay = Control.new()
+	mission_overlay.size = GameData.SCREEN
+	mission_overlay.visible = false
+	add_child(mission_overlay)
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.68)
+	dim.size = GameData.SCREEN
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	mission_overlay.add_child(dim)
+	var box := _new_panel(Rect2(40, 280, 460, 400), COL_PANEL_HI)
+	mission_overlay.add_child(box)
+	var t := _new_label("임무", 30, COL_GOLD)
+	t.position = Vector2(40, 302)
+	t.size = Vector2(460, 40)
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	mission_overlay.add_child(t)
+	var y := 360.0
+	for i in range(3):
+		var panel := _new_panel(Rect2(56, y, 428, 78), COL_PANEL)
+		mission_overlay.add_child(panel)
+		var desc := _new_label("", 18, COL_TEXT)
+		desc.position = Vector2(72, y + 8)
+		mission_overlay.add_child(desc)
+		var barbg := ColorRect.new()
+		barbg.color = Color(0, 0, 0, 0.5); barbg.size = Vector2(240, 12); barbg.position = Vector2(72, y + 40)
+		barbg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		mission_overlay.add_child(barbg)
+		var barfill := ColorRect.new()
+		barfill.color = COL_EXP; barfill.size = Vector2(0, 12); barfill.position = Vector2(72, y + 40)
+		barfill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		mission_overlay.add_child(barfill)
+		var prog := _new_label("", 14, COL_DIM)
+		prog.position = Vector2(320, y + 38); prog.size = Vector2(80, 20)
+		mission_overlay.add_child(prog)
+		var claim := Button.new()
+		claim.position = Vector2(360, y + 18); claim.size = Vector2(112, 42)
+		claim.add_theme_font_size_override("font_size", 17)
+		_style_button(claim)
+		claim.pressed.connect(_claim_mission.bind(i))
+		mission_overlay.add_child(claim)
+		mission_rows.append({"desc": desc, "fill": barfill, "prog": prog, "claim": claim})
+		y += 88.0
+	var close_btn := Button.new()
+	close_btn.text = "닫기"; close_btn.position = Vector2(150, 632); close_btn.size = Vector2(240, 40)
+	close_btn.add_theme_font_size_override("font_size", 19)
+	_style_button(close_btn)
+	close_btn.pressed.connect(func() -> void: mission_overlay.visible = false)
+	mission_overlay.add_child(close_btn)
+
+
+func _open_missions() -> void:
+	_ensure_missions()
+	_refresh_mission_rows()
+	mission_overlay.visible = true
+	if kfont != null:
+		_apply_font_to(mission_overlay)
+
+
+func _refresh_mission_rows() -> void:
+	for i in range(3):
+		if i >= missions.size():
+			continue
+		var st := _mission_state(missions[i])
+		var pdef: Dictionary = st["def"]
+		var amt: int = st["amt"]
+		var label: String = pdef["text"] % (_fmt(amt) if pdef["type"] == "gold" else amt)
+		var row: Dictionary = mission_rows[i]
+		row["desc"].text = label
+		row["fill"].size.x = 240.0 * (float(st["cur"]) / float(amt))
+		row["prog"].text = "%d/%d" % [st["cur"], amt] if pdef["type"] != "gold" else ""
+		var reward := GameData.mission_reward(pdef, stage)
+		row["claim"].text = ("받기 +%s" % _fmt(reward)) if st["done"] else "진행중"
+		row["claim"].disabled = not st["done"]
+
+
+func _claim_mission(i: int) -> void:
+	if i >= missions.size():
+		return
+	var st := _mission_state(missions[i])
+	if not st["done"]:
+		return
+	_play("level_up")
+	gold += GameData.mission_reward(st["def"], stage)
+	missions.remove_at(i)
+	_ensure_missions()
+	_update_hud()
+	_update_growth_buttons()
+	_refresh_mission_badge()
+	_refresh_mission_rows()
+	_save()
+
+
+# ── 일일 보상 ────────────────────────────────────────────────────
+func _check_daily() -> void:
+	var today := int(Time.get_unix_time_from_system()) / 86400
+	if today <= daily_day:
+		return
+	daily_streak = (daily_streak + 1) if today == daily_day + 1 else 1
+	daily_day = today
+	var reward := GameData.daily_reward(stage, daily_streak)
+	gold += reward
+	_update_hud()
+	_update_growth_buttons()
+	_save()
+	_show_reward("일일 보상", "%d일 연속 접속!\n\n골드 +%s" % [daily_streak, _fmt(reward)])
+	busy = true
+	await get_tree().create_timer(2.2).timeout
+	reward_overlay.visible = false
+	busy = false
 
 
 func _save_shot(tag: String) -> void:
@@ -432,6 +604,17 @@ func _build_growth_panel() -> void:
 	var head := _new_label("성장", 20, COL_GOLD)
 	head.position = Vector2(22, 656)
 	add_child(head)
+
+	mission_btn = Button.new()
+	mission_btn.text = "임무"
+	mission_btn.position = Vector2(228, 652)
+	mission_btn.size = Vector2(132, 34)
+	mission_btn.add_theme_font_size_override("font_size", 18)
+	_style_button(mission_btn)
+	mission_btn.pressed.connect(func() -> void:
+		_play("button")
+		_open_missions())
+	add_child(mission_btn)
 
 	var prestige_btn := Button.new()
 	prestige_btn.text = "◆ 환생"
@@ -1160,6 +1343,11 @@ func _enemy_die() -> void:
 	_float_text(Vector2(HERO_X + 30, GROUND_Y - 96), "+%s" % _fmt(g), COL_GOLD, enemy["boss"])
 	_gain_exp(int(enemy["exp"]))
 	var was_boss: bool = enemy["boss"]
+	counters["kill"] += 1
+	counters["gold"] += g
+	if was_boss:
+		counters["boss"] += 1
+	_refresh_mission_badge()
 	_play("boss_victory" if was_boss else "")
 	_spawn_hit_burst(Vector2(ENEMY_X, GROUND_Y - enemy["r"]), Color(enemy["color"]).lightened(0.2), 22 if was_boss else 12)
 	if is_instance_valid(enemy_node):
@@ -1194,6 +1382,8 @@ func _stage_clear(was_boss: bool) -> void:
 	kills = 0
 	var cleared_stage := stage
 	stage += 1
+	counters["stage"] += 1
+	_refresh_mission_badge()
 	_save()
 	if was_boss:
 		busy = true
@@ -1227,6 +1417,8 @@ func _on_upgrade_pressed(id: String) -> void:
 	_play("button")
 	_btn_pop(up_rows[id]["panel"])
 	gold -= cost
+	counters["upgrade"] += 1
+	_refresh_mission_badge()
 	upgrades[id] = int(upgrades[id]) + 1
 	_recompute_stats()
 	if id == "hp":
@@ -1392,6 +1584,8 @@ func _state_dict() -> Dictionary:
 		"max_stage_cleared": max_stage_cleared, "region_cleared": region_cleared,
 		"souls": souls, "prestige_count": prestige_count, "soul_upgrades": soul_upgrades,
 		"sound_on": sound_on, "seen_intro": seen_intro,
+		"counters": counters, "missions": missions,
+		"daily_day": daily_day, "daily_streak": daily_streak,
 	}
 
 
@@ -1414,6 +1608,12 @@ func _apply_save(s: Dictionary) -> void:
 	last_save_unix = int(s.get("last_save_unix", 0))
 	sound_on = bool(s.get("sound_on", true))
 	seen_intro = bool(s.get("seen_intro", false))
+	var c = s.get("counters", {})
+	for k in counters.keys():
+		counters[k] = int(c.get(k, 0)) if typeof(c) == TYPE_DICTIONARY else 0
+	missions = s.get("missions", []) if typeof(s.get("missions")) == TYPE_ARRAY else []
+	daily_day = int(s.get("daily_day", 0))
+	daily_streak = int(s.get("daily_streak", 0))
 	var su = s.get("soul_upgrades", {})
 	for id in soul_upgrades.keys():
 		soul_upgrades[id] = int(su.get(id, 0)) if typeof(su) == TYPE_DICTIONARY else 0
@@ -1426,6 +1626,10 @@ func _reset_progress() -> void:
 	stage = 1; kills = 0; max_stage_cleared = 0; region_cleared = false
 	souls = 0; prestige_count = 0
 	soul_upgrades = {"s_atk": 0, "s_gold": 0, "s_hp": 0, "s_off": 0}
+	counters = {"kill": 0, "stage": 0, "upgrade": 0, "boss": 0, "gold": 0}
+	missions = []; daily_day = 0; daily_streak = 0
+	_ensure_missions()
+	_refresh_mission_badge()
 	_recompute_stats()
 	p_hp = p_max_hp
 	busy = false

@@ -21,6 +21,10 @@ static func save(state: Dictionary) -> void:
 		"soul_upgrades": state.get("soul_upgrades", {}),
 		"sound_on": bool(state.get("sound_on", true)),
 		"seen_intro": bool(state.get("seen_intro", false)),
+		"counters": state.get("counters", {}),
+		"missions": state.get("missions", []),
+		"daily_day": int(state.get("daily_day", 0)),
+		"daily_streak": int(state.get("daily_streak", 0)),
 		"last_save_unix": int(Time.get_unix_time_from_system()),
 	}
 	var f := FileAccess.open(PATH, FileAccess.WRITE)
@@ -66,6 +70,10 @@ static func load_state() -> Dictionary:
 		"soul_upgrades": soul_upgrades,
 		"sound_on": bool(parsed.get("sound_on", true)),
 		"seen_intro": bool(parsed.get("seen_intro", false)),
+		"counters": parsed.get("counters", {}) if typeof(parsed.get("counters")) == TYPE_DICTIONARY else {},
+		"missions": parsed.get("missions", []) if typeof(parsed.get("missions")) == TYPE_ARRAY else [],
+		"daily_day": int(parsed.get("daily_day", 0)),
+		"daily_streak": int(parsed.get("daily_streak", 0)),
 		"last_save_unix": int(parsed.get("last_save_unix", 0)),
 	}
 

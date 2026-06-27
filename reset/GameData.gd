@@ -186,6 +186,28 @@ static func soul_upgrade_def(id: String) -> Dictionary:
 static func soul_upgrade_cost(udef: Dictionary, level: int) -> int:
 	return int(round(float(udef["cost"]) * pow(float(udef["mult"]), level)))
 
+# ── 임무(리텐션) ─────────────────────────────────────────────────
+# type: kill/stage/upgrade/boss/gold 누적 카운터. w: 보상 가중치(현재 스테이지 골드 수입 기준 배수).
+const MISSION_POOL := [
+	{"type": "kill",    "amount": 50,     "w": 50,  "text": "마물 %d마리 처치"},
+	{"type": "kill",    "amount": 200,    "w": 120, "text": "마물 %d마리 처치"},
+	{"type": "stage",   "amount": 5,      "w": 70,  "text": "%d개 층 전진"},
+	{"type": "stage",   "amount": 15,     "w": 160, "text": "%d개 층 전진"},
+	{"type": "upgrade", "amount": 10,     "w": 60,  "text": "강화 %d회"},
+	{"type": "upgrade", "amount": 30,     "w": 130, "text": "강화 %d회"},
+	{"type": "boss",    "amount": 2,      "w": 90,  "text": "보스 %d처치"},
+	{"type": "gold",    "amount": 5000,   "w": 80,  "text": "골드 %s 획득"},
+]
+
+# 임무 보상 골드(현재 스테이지 골드 수입 × 가중치). 진행도에 맞춰 항상 의미 있게.
+static func mission_reward(udef: Dictionary, stage: int) -> int:
+	return int(round(enemy_gold(stage) * float(udef["w"])))
+
+# 일일 보상 골드(연속일 보너스 포함, 현재 스테이지 기준).
+const DAILY_W := 200
+static func daily_reward(stage: int, streak: int) -> int:
+	return int(round(enemy_gold(stage) * DAILY_W * (1.0 + mini(streak, 6) * 0.25)))
+
 # ── 오프라인 보상 ────────────────────────────────────────────────
 const OFFLINE_CAP_SEC := 8 * 3600   # 최대 8시간 정산
 const OFFLINE_EFFICIENCY := 0.6     # 활동 대비 효율
