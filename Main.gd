@@ -4,20 +4,21 @@ extends Control
 const GameData := preload("res://reset/GameData.gd")
 const SaveSystem := preload("res://reset/SaveSystem.gd")
 
-# ── 팔레트(다크 판타지: 심해 인디고 + 금색 강조) ─────────────────
-const COL_PANEL := Color(0.10, 0.09, 0.17, 0.97)
-const COL_PANEL_HI := Color(0.16, 0.14, 0.26, 0.98)
-const COL_BTN := Color(0.20, 0.17, 0.32)
-const COL_BTN_HI := Color(0.30, 0.25, 0.46)
-const COL_BORDER := Color(0.46, 0.38, 0.66)
-const COL_BEVEL := Color(0.66, 0.56, 0.92, 0.55)   # 윗변 하이라이트
-const COL_SHADOW := Color(0.0, 0.0, 0.0, 0.45)
+# ── 팔레트(다크 판타지: 차콜 스틸 + 금색 강조, 보라 최소화) ──────
+const COL_PANEL := Color(0.09, 0.10, 0.13, 0.97)
+const COL_PANEL_HI := Color(0.14, 0.16, 0.20, 0.98)
+const COL_BTN := Color(0.17, 0.19, 0.24)
+const COL_BTN_HI := Color(0.25, 0.28, 0.34)
+const COL_BORDER := Color(0.44, 0.40, 0.30)        # 은은한 청동/금테
+const COL_BEVEL := Color(0.72, 0.68, 0.52, 0.5)    # 윗변 하이라이트(금빛)
+const COL_SHADOW := Color(0.0, 0.0, 0.0, 0.5)
 const COL_GOLD := Color(1.0, 0.81, 0.36)
-const COL_TEXT := Color(0.95, 0.93, 1.0)
-const COL_DIM := Color(0.60, 0.56, 0.72)
+const COL_TEXT := Color(0.94, 0.94, 0.96)
+const COL_DIM := Color(0.58, 0.60, 0.64)
 const COL_HP := Color(0.40, 0.85, 0.46)
 const COL_HP_BOSS := Color(0.90, 0.30, 0.34)
-const COL_EXP := Color(0.62, 0.48, 1.0)
+const COL_EXP := Color(0.40, 0.74, 0.95)           # 청록(보라 대신)
+const COL_CRYSTAL := Color(0.62, 0.80, 0.92)       # 균열석/환생 강조(차분한 청)
 
 const GROUND_Y := 600.0
 const HERO_X := 158.0
@@ -687,7 +688,7 @@ func _build_hud() -> void:
 	lbl_level.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	add_child(lbl_level)
 
-	lbl_souls = _new_label("", 15, Color(0.80, 0.72, 1.0))
+	lbl_souls = _new_label("", 15, COL_CRYSTAL)
 	lbl_souls.position = Vector2(180, 82)
 	lbl_souls.size = Vector2(330, 18)
 	lbl_souls.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -887,11 +888,11 @@ func _make_skill_btn(label: String, pos: Vector2, cb: Callable) -> Button:
 	b.text = label
 	b.add_theme_font_size_override("font_size", 20)
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.30, 0.20, 0.42, 0.95)
+	sb.bg_color = Color(0.18, 0.20, 0.26, 0.96)
 	sb.set_corner_radius_all(36)
 	sb.border_color = COL_GOLD
 	sb.set_border_width_all(2)
-	var pressed := sb.duplicate(); pressed.bg_color = Color(0.42, 0.30, 0.55)
+	var pressed := sb.duplicate(); pressed.bg_color = Color(0.28, 0.31, 0.38)
 	b.add_theme_stylebox_override("normal", sb)
 	b.add_theme_stylebox_override("hover", sb)
 	b.add_theme_stylebox_override("pressed", pressed)
@@ -1161,7 +1162,7 @@ func _build_prestige_overlay() -> void:
 	prestige_overlay.add_child(dim)
 	var box := _new_panel(Rect2(28, 92, 484, 770), COL_PANEL_HI)
 	prestige_overlay.add_child(box)
-	var t := _new_label("환생 · 균열석 상점", 28, Color(0.82, 0.74, 1.0))
+	var t := _new_label("환생 · 균열석 상점", 28, COL_CRYSTAL)
 	t.position = Vector2(28, 108)
 	t.size = Vector2(484, 38)
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -1225,7 +1226,7 @@ func _make_soul_row(udef: Dictionary, y: float) -> void:
 	var eff_lbl := _new_label("", 14, COL_DIM)
 	eff_lbl.position = Vector2(66, y + 30)
 	prestige_overlay.add_child(eff_lbl)
-	var cost_lbl := _new_label("", 18, Color(0.82, 0.74, 1.0))
+	var cost_lbl := _new_label("", 18, COL_CRYSTAL)
 	cost_lbl.position = Vector2(300, y + 16)
 	cost_lbl.size = Vector2(174, 24)
 	cost_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
