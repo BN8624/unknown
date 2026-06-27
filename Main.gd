@@ -52,6 +52,8 @@ var p_interval := 0.85
 var enemy := {}
 var p_atk_timer := 0.0
 var e_atk_timer := 0.0
+var boss_atk_count := 0
+var boss_winding := false    # 보스 강공격 예열 중
 var busy := false            # 보상 표시 중엔 전투 정지
 var kfont: FontFile
 
@@ -136,6 +138,15 @@ func _run_shot_sequence() -> void:
 	_show_reward("돌아오셨군요!", "자리를 비운 3시간 12분 동안\n부하들이 사냥했습니다.\n\n골드 +18,400")
 	await get_tree().create_timer(0.4).timeout
 	_save_shot("r06_offline")
+	reward_overlay.visible = false
+	stage = 23; kills = 2; _spawn_enemy()   # 2지역(잿빛 협곡) 일반 적
+	await get_tree().create_timer(0.5).timeout
+	_save_shot("r07_region2")
+	stage = 40; kills = 0; _spawn_enemy()    # 2지역 최종 보스
+	await get_tree().create_timer(0.4).timeout
+	_boss_heavy()                            # 강공격 예열(확대·붉은 경고)
+	await get_tree().create_timer(0.45).timeout
+	_save_shot("r08_bosswindup")
 	get_tree().quit(0)
 
 func _save_shot(tag: String) -> void:
@@ -147,17 +158,15 @@ func _save_shot(tag: String) -> void:
 # ── 배경 ─────────────────────────────────────────────────────────
 var sky_grad: Gradient
 
-# 5층 구간마다 하늘 색을 살짝 바꿔 전진하는 느낌을 준다.
-const SKY_TONES := [
-	Color(0.18, 0.14, 0.30), Color(0.12, 0.18, 0.30), Color(0.20, 0.13, 0.22),
-	Color(0.10, 0.20, 0.22), Color(0.22, 0.16, 0.14), Color(0.16, 0.12, 0.26),
-]
-
+# 지역 테마색으로 하늘 아래쪽을 바꿔 전진·지역 변화를 느끼게 한다.
 func _update_sky() -> void:
 	if sky_grad == null:
 		return
-	var tier := int((stage - 1) / GameData.BOSS_EVERY)
-	sky_grad.set_color(1, SKY_TONES[tier % SKY_TONES.size()])
+	var reg := GameData.region_for(stage)
+	var base: Color = reg["sky"]
+	# 지역 안에서도 보스 구간마다 미세하게 밝기 변주
+	var sub := (int((stage - 1) / GameData.BOSS_EVERY) % 2) * 0.02
+	sky_grad.set_color(1, base.lightened(sub))
 
 
 var rift_glow: Sprite2D
@@ -964,6 +973,8 @@ func _spawn_enemy() -> void:
 		_play("boss_appear")
 	_update_sky()
 	e_atk_timer = 0.0
+	boss_atk_count = 0
+	boss_winding = false
 	_update_progress()
 
 
@@ -981,10 +992,11 @@ func _process(delta: float) -> void:
 	if p_atk_timer >= p_interval:
 		p_atk_timer = 0.0
 		_player_attack()
-	e_atk_timer += delta
-	if e_atk_timer >= float(enemy["interval"]):
-		e_atk_timer = 0.0
-		_enemy_attack()
+	if not boss_winding:
+		e_atk_timer += delta
+		if e_atk_timer >= float(enemy["interval"]):
+			e_atk_timer = 0.0
+			_enemy_attack()
 
 
 func _player_attack() -> void:
@@ -1012,6 +1024,12 @@ func _player_attack() -> void:
 func _enemy_attack() -> void:
 	if enemy.is_empty() or enemy.get("dying", false):
 		return
+	# 보스는 3번째 공격마다 예고된 강공격
+	if enemy.get("boss", false):
+		boss_atk_count += 1
+		if boss_atk_count % 3 == 0:
+			_boss_heavy()
+			return
 	var tw := create_tween()
 	tw.tween_property(enemy_node, "position:x", ENEMY_X - 24, 0.09)
 	tw.tween_property(enemy_node, "position:x", ENEMY_X, 0.12)
@@ -1023,6 +1041,51 @@ func _enemy_attack() -> void:
 	_update_hero_hp()
 	if p_hp <= 0:
 		_player_down()
+
+
+# 보스 강공격: 0.75초 예열(확대·붉은 경고) 후 큰 피해. 예열 동안 보스는 일반 공격을 멈춘다.
+func _boss_heavy() -> void:
+	boss_winding = true
+	_play("boss_appear")
+	_flash_notice("⚠ 강공격 예열")
+	if is_instance_valid(enemy_node):
+		var tw := create_tween()
+		tw.tween_property(enemy_node, "scale", Vector2(1.28, 1.28), 0.7)
+		tw.parallel().tween_property(enemy_node, "modulate", Color(1.9, 0.5, 0.5), 0.7)
+	await get_tree().create_timer(0.78).timeout
+	if enemy.is_empty() or enemy.get("dying", false) or not enemy.get("boss", false):
+		boss_winding = false
+		return
+	if is_instance_valid(enemy_node):
+		var tw2 := create_tween()
+		tw2.tween_property(enemy_node, "position:x", ENEMY_X - 64, 0.1)
+		tw2.tween_property(enemy_node, "position:x", ENEMY_X, 0.22)
+		tw2.parallel().tween_property(enemy_node, "scale", Vector2(1, 1), 0.32)
+		tw2.parallel().tween_property(enemy_node, "modulate", Color(1, 1, 1), 0.32)
+	var dmg: int = maxi(1, int(round(int(enemy["atk"]) * 2.6)) - p_def)
+	p_hp -= dmg
+	_play("crit")
+	_screen_flash(Color(0.9, 0.15, 0.15, 0.32))
+	_hit_flash(hero)
+	_spawn_hit_burst(Vector2(HERO_X, GROUND_Y - 60), Color(1.0, 0.4, 0.4, 0.9), 16)
+	_float_text(Vector2(HERO_X, GROUND_Y - 150), str(dmg), Color(1.0, 0.35, 0.35), true)
+	_update_hero_hp()
+	e_atk_timer = 0.0
+	boss_winding = false
+	if p_hp <= 0:
+		_player_down()
+
+
+# 화면 전체 짧은 색 플래시(보스 강공격 등 임팩트).
+func _screen_flash(col: Color) -> void:
+	var r := ColorRect.new()
+	r.color = col
+	r.size = GameData.SCREEN
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(r)
+	var tw := create_tween()
+	tw.tween_property(r, "color", Color(col.r, col.g, col.b, 0), 0.4)
+	tw.tween_callback(r.queue_free)
 
 
 func _player_down() -> void:
@@ -1073,12 +1136,13 @@ func _stage_clear(was_boss: bool) -> void:
 	_save()
 	if was_boss:
 		busy = true
-		var final := cleared_stage >= GameData.STAGE_COUNT and not region_cleared
-		if final:
+		var region_final := GameData.is_region_final(cleared_stage)
+		if cleared_stage >= GameData.STAGE_COUNT:
 			region_cleared = true
 		var lines := "골드 +%s\n전투력이 단단해졌습니다." % _fmt(int(enemy["gold"]))
-		if final:
-			_show_reward("지역 클리어!", "%s 돌파!\n%s\n\n새 균열이 계속 열립니다." % [GameData.REGION_NAME, lines])
+		if region_final:
+			var nextreg := GameData.region_for(cleared_stage + 1)
+			_show_reward("지역 클리어!", "%s 돌파!\n%s\n\n새 지역 [%s] 개방!" % [GameData.region_for(cleared_stage)["name"], lines, nextreg["name"]])
 		else:
 			_show_reward("보스 격파!", "%s 처치\n%s\n\n%d층으로 전진!" % [enemy["name"], lines, stage])
 		await get_tree().create_timer(1.9).timeout
@@ -1153,8 +1217,7 @@ func _gain_exp(amount: int) -> void:
 func _update_hud() -> void:
 	lbl_gold.text = "골드  %s" % _fmt(gold)
 	lbl_level.text = "Lv %d" % level
-	var depth := "%s · %d층" % [GameData.REGION_NAME, stage]
-	lbl_stage.text = depth
+	lbl_stage.text = "%s · %d층" % [GameData.region_for(stage)["name"], stage]
 	var need := GameData.exp_to_next(level)
 	exp_fill.size.x = 500.0 * clampf(float(exp) / float(need), 0.0, 1.0)
 	var line := "전투력 %s" % _fmt(p_power)

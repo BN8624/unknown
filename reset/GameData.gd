@@ -46,6 +46,45 @@ const BOSS_LOOKS := [
 	{"name": "균열의 수호자",     "color": Color(0.70, 0.35, 0.25), "r": 64.0},
 ]
 
+# ── 지역(테마·적 외형·하늘) ──────────────────────────────────────
+# 스탯은 전역 스테이지 공식으로 연속 유지하고, 지역은 이름·외형·하늘색만 바꾼다(밸런스 불연속 방지).
+const REGIONS := [
+	{
+		"name": "갈라진 변경", "end": 20, "sky": Color(0.18, 0.14, 0.30),
+		"enemy_looks": ENEMY_LOOKS, "boss_looks": BOSS_LOOKS,
+	},
+	{
+		"name": "잿빛 협곡", "end": 40, "sky": Color(0.22, 0.13, 0.12),
+		"enemy_looks": [
+			{"name": "잿불 박쥐",   "color": Color(0.72, 0.40, 0.28), "r": 26.0},
+			{"name": "용암 슬라임", "color": Color(0.80, 0.46, 0.22), "r": 30.0},
+			{"name": "그을린 늑대", "color": Color(0.50, 0.36, 0.30), "r": 30.0},
+			{"name": "재 정령",     "color": Color(0.62, 0.55, 0.50), "r": 28.0},
+			{"name": "불씨 골렘",   "color": Color(0.70, 0.34, 0.24), "r": 32.0},
+		],
+		"boss_looks": [
+			{"name": "화염군주 이그", "color": Color(0.80, 0.32, 0.18), "r": 54.0},
+			{"name": "용암 거인 칼",  "color": Color(0.68, 0.40, 0.20), "r": 60.0},
+			{"name": "잿빛 드레이크", "color": Color(0.52, 0.44, 0.40), "r": 58.0},
+			{"name": "협곡의 지배자", "color": Color(0.85, 0.30, 0.22), "r": 66.0},
+		],
+	},
+]
+
+# 스테이지가 속한 지역(마지막 지역으로 클램프 — 그 너머는 마지막 지역 테마 유지).
+static func region_for(stage: int) -> Dictionary:
+	for reg in REGIONS:
+		if stage <= int(reg["end"]):
+			return reg
+	return REGIONS[REGIONS.size() - 1]
+
+# 이 스테이지가 어느 지역의 마지막(최종 보스)인가.
+static func is_region_final(stage: int) -> bool:
+	for reg in REGIONS:
+		if stage == int(reg["end"]):
+			return true
+	return false
+
 static func is_boss_stage(stage: int) -> bool:
 	return stage % BOSS_EVERY == 0
 
@@ -75,15 +114,18 @@ static func make_enemy(stage: int) -> Dictionary:
 	var atk := enemy_atk(stage)
 	var gold := enemy_gold(stage)
 	var exp := enemy_exp(stage)
+	var reg := region_for(stage)
 	var look: Dictionary
 	if boss:
 		hp = int(round(hp * BOSS_HP_MULT))
 		atk = int(round(atk * BOSS_ATK_MULT))
 		gold = int(round(gold * BOSS_GOLD_MULT))
 		exp = int(round(exp * BOSS_EXP_MULT))
-		look = BOSS_LOOKS[(int(stage / BOSS_EVERY) - 1) % BOSS_LOOKS.size()]
+		var bl: Array = reg["boss_looks"]
+		look = bl[(int(stage / BOSS_EVERY) - 1) % bl.size()]
 	else:
-		look = ENEMY_LOOKS[(stage * 3 + _kill_salt) % ENEMY_LOOKS.size()]
+		var el: Array = reg["enemy_looks"]
+		look = el[(stage * 3 + _kill_salt) % el.size()]
 	return {
 		"name": look["name"], "color": look["color"], "r": look["r"],
 		"boss": boss, "max_hp": hp, "hp": hp, "atk": atk,
