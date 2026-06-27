@@ -11,3 +11,10 @@ malgun.ttf.import
 # 환경 변수·비밀 (절대 커밋 금지)
 .env
 .env.*
+
+# 아트 마스터/중간본(대용량) — 게임은 사용 파일명만 로드
+assets/ui/*_source.png
+assets/ui/*_chroma_source.png
+assets/ui/*_2x.png
+assets/ui/*_preview.png
+assets/ui/*_sheet.png
