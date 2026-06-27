@@ -191,6 +191,8 @@ const SOUL_UPGRADES := [
 	{"id": "s_gold", "name": "탐욕",       "desc": "골드 획득",    "per": 0.10, "cost": 2, "mult": 1.6},
 	{"id": "s_hp",   "name": "불굴",       "desc": "체력",         "per": 0.10, "cost": 3, "mult": 1.7},
 	{"id": "s_off",  "name": "잠든 부대",  "desc": "오프라인 효율","per": 0.12, "cost": 4, "mult": 1.8},
+	{"id": "s_crit", "name": "처형",       "desc": "치명타 피해",  "per": 0.15, "cost": 3, "mult": 1.7},
+	{"id": "s_cd",   "name": "각성",       "desc": "스킬 쿨감",    "per": 0.05, "cost": 5, "mult": 1.9},
 ]
 
 static func soul_upgrade_def(id: String) -> Dictionary:
@@ -223,6 +225,34 @@ static func mission_reward(udef: Dictionary, stage: int) -> int:
 const DAILY_W := 200
 static func daily_reward(stage: int, streak: int) -> int:
 	return int(round(enemy_gold(stage) * DAILY_W * (1.0 + mini(streak, 6) * 0.25)))
+
+# ── 업적(영구 보상) ──────────────────────────────────────────────
+# stat: max_stage/kill/boss/prestige/upgrade/gold 기준. 달성 시 bonus(전투력·골드 영구 배수)에 가산.
+const ACHIEVEMENTS := [
+	{"id": "f10",  "stat": "max_stage", "target": 10,      "name": "변경의 개척자",   "bonus": 0.03},
+	{"id": "f25",  "stat": "max_stage", "target": 25,      "name": "협곡의 도전자",   "bonus": 0.04},
+	{"id": "f40",  "stat": "max_stage", "target": 40,      "name": "협곡 정복자",     "bonus": 0.05},
+	{"id": "f60",  "stat": "max_stage", "target": 60,      "name": "심연의 답사자",   "bonus": 0.06},
+	{"id": "f80",  "stat": "max_stage", "target": 80,      "name": "심연 깊은 곳",     "bonus": 0.08},
+	{"id": "f100", "stat": "max_stage", "target": 100,     "name": "100층 등정",      "bonus": 0.10},
+	{"id": "f150", "stat": "max_stage", "target": 150,     "name": "무한의 방랑자",   "bonus": 0.15},
+	{"id": "k100", "stat": "kill",      "target": 100,     "name": "첫 사냥",         "bonus": 0.02},
+	{"id": "k1k",  "stat": "kill",      "target": 1000,    "name": "마물 사냥꾼",     "bonus": 0.04},
+	{"id": "k10k", "stat": "kill",      "target": 10000,   "name": "마물의 천적",     "bonus": 0.07},
+	{"id": "k100k","stat": "kill",      "target": 100000,  "name": "학살자",         "bonus": 0.12},
+	{"id": "b10",  "stat": "boss",      "target": 10,      "name": "보스 사냥",       "bonus": 0.04},
+	{"id": "b50",  "stat": "boss",      "target": 50,      "name": "보스 학살",       "bonus": 0.07},
+	{"id": "b150", "stat": "boss",      "target": 150,     "name": "지배자 처형인",   "bonus": 0.12},
+	{"id": "p1",   "stat": "prestige",  "target": 1,       "name": "첫 환생",         "bonus": 0.05},
+	{"id": "p5",   "stat": "prestige",  "target": 5,       "name": "거듭난 기사",     "bonus": 0.08},
+	{"id": "p15",  "stat": "prestige",  "target": 15,      "name": "윤회의 기사",     "bonus": 0.12},
+	{"id": "p30",  "stat": "prestige",  "target": 30,      "name": "영겁의 기사",     "bonus": 0.18},
+	{"id": "u50",  "stat": "upgrade",   "target": 50,      "name": "단련",           "bonus": 0.03},
+	{"id": "u200", "stat": "upgrade",   "target": 200,     "name": "정진",           "bonus": 0.05},
+	{"id": "u500", "stat": "upgrade",   "target": 500,     "name": "극한 단련",       "bonus": 0.09},
+	{"id": "g1m",  "stat": "gold",      "target": 1000000, "name": "백만장자",       "bonus": 0.05},
+	{"id": "g1b",  "stat": "gold",      "target": 1000000000, "name": "억만장자",    "bonus": 0.10},
+]
 
 # ── 오프라인 보상 ────────────────────────────────────────────────
 const OFFLINE_CAP_SEC := 8 * 3600   # 최대 8시간 정산

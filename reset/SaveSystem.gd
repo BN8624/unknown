@@ -26,6 +26,10 @@ static func save(state: Dictionary) -> void:
 		"daily_day": int(state.get("daily_day", 0)),
 		"daily_streak": int(state.get("daily_streak", 0)),
 		"auto_boss": bool(state.get("auto_boss", false)),
+		"achieved": state.get("achieved", []),
+		"auto_upgrade": bool(state.get("auto_upgrade", false)),
+		"auto_skill": bool(state.get("auto_skill", false)),
+		"auto_prestige": bool(state.get("auto_prestige", false)),
 		"last_save_unix": int(Time.get_unix_time_from_system()),
 	}
 	var f := FileAccess.open(PATH, FileAccess.WRITE)
@@ -76,6 +80,10 @@ static func load_state() -> Dictionary:
 		"daily_day": int(parsed.get("daily_day", 0)),
 		"daily_streak": int(parsed.get("daily_streak", 0)),
 		"auto_boss": bool(parsed.get("auto_boss", false)),
+		"achieved": parsed.get("achieved", []) if typeof(parsed.get("achieved")) == TYPE_ARRAY else [],
+		"auto_upgrade": bool(parsed.get("auto_upgrade", false)),
+		"auto_skill": bool(parsed.get("auto_skill", false)),
+		"auto_prestige": bool(parsed.get("auto_prestige", false)),
 		"last_save_unix": int(parsed.get("last_save_unix", 0)),
 	}
 

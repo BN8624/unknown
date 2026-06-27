@@ -35,7 +35,17 @@ var soul_upgrades := {"s_atk": 0, "s_gold": 0, "s_hp": 0, "s_off": 0}
 var p_global_mult := 1.0      # 균열석 영구 배수(전투력)
 var p_gold_mult := 1.0        # 균열석 + 상점 골드 배수
 var p_off_eff := 0.6          # 오프라인 효율
+var p_crit_mult := 2.0        # 치명타 피해 배수(처형 반영)
+var p_cd_scale := 1.0         # 스킬 쿨다운 배수(각성 반영)
 var p_power := 0              # 전투력(표시용)
+var ach_mult := 1.0           # 업적 영구 배수(전투력·골드)
+var achieved: Array = []      # 달성한 업적 id
+# 자동화(저장)
+var auto_upgrade := false
+var auto_skill := false
+var auto_prestige := false
+var last_progress_t := 0.0    # 마지막 진행(스테이지 클리어) 이후 경과 — 자동 환생 판단
+var _overpower := false        # 현재 적을 한 방에 처치 가능
 
 # ── 파생 능력치 ──────────────────────────────────────────────────
 var p_atk := 10
@@ -123,10 +133,12 @@ func _ready() -> void:
 	_build_settings_overlay()
 	_build_prestige_overlay()
 	_build_mission_overlay()
+	_build_achievements_overlay()
 	_setup_audio()
 	var s := SaveSystem.load_state()
 	if not s.is_empty():
 		_apply_save(s)
+	_recompute_ach_mult()
 	_recompute_stats()
 	p_hp = p_max_hp
 	_apply_hero_skin()
@@ -201,6 +213,17 @@ func _run_shot_sequence() -> void:
 	stage = 10; kills = 0; boss_active = false; _spawn_enemy()  # 보스 관문(도전 버튼)
 	await get_tree().create_timer(0.5).timeout
 	_save_shot("r11_gate")
+	# 업적 오버레이(일부 달성 상태로)
+	max_stage_cleared = 45; counters = {"kill": 5200, "stage": 50, "upgrade": 230, "boss": 12, "gold": 2500000}
+	achieved = ["f10","f25","f40","k100","k1k","b10","u50","u200","p1"]; _recompute_ach_mult(); _recompute_stats()
+	_open_achievements()
+	await get_tree().create_timer(0.4).timeout
+	_save_shot("r12_achievements")
+	ach_overlay.visible = false
+	auto_upgrade = true; auto_skill = true
+	_open_settings(); _apply_font_to(settings_overlay)
+	await get_tree().create_timer(0.3).timeout
+	_save_shot("r13_automation")
 	get_tree().quit(0)
 
 var _onboard_ov: Control
@@ -412,6 +435,38 @@ func _check_daily() -> void:
 	busy = false
 
 
+# ── 업적(영구 보상) ──────────────────────────────────────────────
+func _ach_value(stat: String) -> int:
+	match stat:
+		"max_stage": return max_stage_cleared
+		"prestige": return prestige_count
+		_: return int(counters.get(stat, 0))
+
+
+func _recompute_ach_mult() -> void:
+	var m := 1.0
+	for a in GameData.ACHIEVEMENTS:
+		if achieved.has(a["id"]):
+			m += float(a["bonus"])
+	ach_mult = m
+
+
+func _check_achievements() -> void:
+	var changed := false
+	for a in GameData.ACHIEVEMENTS:
+		if achieved.has(a["id"]):
+			continue
+		if _ach_value(a["stat"]) >= int(a["target"]):
+			achieved.append(a["id"])
+			changed = true
+			_flash_notice("업적 달성!  %s\n전투력·골드 +%d%%" % [a["name"], int(round(float(a["bonus"]) * 100))])
+	if changed:
+		_recompute_ach_mult()
+		_recompute_stats()
+		_update_hud()
+		_update_growth_buttons()
+
+
 func _save_shot(tag: String) -> void:
 	var img := get_viewport().get_texture().get_image()
 	img.save_png("%s/shot_%s.png" % [SHOT_DIR, tag])
@@ -573,7 +628,7 @@ func _build_hud() -> void:
 	_style_button(gear)
 	gear.pressed.connect(func() -> void:
 		_play("button")
-		settings_overlay.visible = true)
+		_open_settings())
 	add_child(gear)
 
 	lbl_gold = _new_label("", 22, COL_GOLD)
@@ -757,7 +812,7 @@ func _use_smash() -> void:
 	if smash_cd > 0 or enemy.is_empty() or enemy.get("dying", false):
 		return
 	_btn_pop(smash_btn)
-	smash_cd = SMASH_CD
+	smash_cd = SMASH_CD * p_cd_scale
 	var dmg := int(round(p_atk * 8.0))
 	enemy["hp"] = int(enemy["hp"]) - dmg
 	_play("crit")
@@ -776,7 +831,7 @@ func _use_haste() -> void:
 	if haste_cd > 0:
 		return
 	_btn_pop(haste_btn)
-	haste_cd = HASTE_CD
+	haste_cd = HASTE_CD * p_cd_scale
 	haste_timer = HASTE_DUR
 	_play("level_up")
 	_flash_notice("가속!")
@@ -843,32 +898,40 @@ func _build_settings_overlay() -> void:
 	dim.size = GameData.SCREEN
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	settings_overlay.add_child(dim)
-	var box := _new_panel(Rect2(70, 330, 400, 330), COL_PANEL_HI)
+	var box := _new_panel(Rect2(60, 170, 420, 620), COL_PANEL_HI)
 	settings_overlay.add_child(box)
-	var t := _new_label("설정", 30, COL_GOLD)
-	t.position = Vector2(70, 352)
-	t.size = Vector2(400, 40)
+	var t := _new_label("설정 · 자동화", 28, COL_GOLD)
+	t.position = Vector2(60, 190)
+	t.size = Vector2(420, 40)
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	settings_overlay.add_child(t)
 
-	var sound_btn := Button.new()
-	sound_btn.text = "사운드: 켜짐" if sound_on else "사운드: 꺼짐"
-	sound_btn.position = Vector2(120, 408)
-	sound_btn.size = Vector2(300, 52)
-	sound_btn.add_theme_font_size_override("font_size", 21)
-	_style_button(sound_btn)
-	sound_btn.pressed.connect(func() -> void:
-		_set_sound(not sound_on)
-		sound_btn.text = "사운드: 켜짐" if sound_on else "사운드: 꺼짐"
-		_play("button")
-		_save())
-	settings_overlay.add_child(sound_btn)
+	_settings_toggle(244, "사운드",
+		func() -> bool: return sound_on,
+		func(v: bool) -> void: _set_sound(v))
+	_settings_toggle(304, "자동 강화",
+		func() -> bool: return auto_upgrade,
+		func(v: bool) -> void: auto_upgrade = v)
+	_settings_toggle(364, "자동 스킬",
+		func() -> bool: return auto_skill,
+		func(v: bool) -> void: auto_skill = v)
+	_settings_toggle(424, "자동 환생",
+		func() -> bool: return auto_prestige,
+		func(v: bool) -> void: auto_prestige = v)
+
+	var ach_btn := Button.new()
+	ach_btn.text = "업적"
+	ach_btn.position = Vector2(110, 492); ach_btn.size = Vector2(320, 52)
+	ach_btn.add_theme_font_size_override("font_size", 21)
+	_style_button(ach_btn)
+	ach_btn.pressed.connect(func() -> void: _play("button"); _open_achievements())
+	settings_overlay.add_child(ach_btn)
 
 	var reset_btn := Button.new()
 	reset_btn.text = "진행 초기화"
-	reset_btn.position = Vector2(120, 476)
-	reset_btn.size = Vector2(300, 54)
-	reset_btn.add_theme_font_size_override("font_size", 22)
+	reset_btn.position = Vector2(110, 560)
+	reset_btn.size = Vector2(320, 50)
+	reset_btn.add_theme_font_size_override("font_size", 20)
 	_style_button(reset_btn)
 	var confirming := {"v": false}
 	reset_btn.pressed.connect(func() -> void:
@@ -884,8 +947,8 @@ func _build_settings_overlay() -> void:
 
 	var close_btn := Button.new()
 	close_btn.text = "닫기"
-	close_btn.position = Vector2(120, 548)
-	close_btn.size = Vector2(300, 50)
+	close_btn.position = Vector2(110, 624)
+	close_btn.size = Vector2(320, 48)
 	close_btn.add_theme_font_size_override("font_size", 20)
 	_style_button(close_btn)
 	close_btn.pressed.connect(func() -> void:
@@ -893,6 +956,98 @@ func _build_settings_overlay() -> void:
 		reset_btn.text = "진행 초기화"
 		settings_overlay.visible = false)
 	settings_overlay.add_child(close_btn)
+
+
+var ach_overlay: Control
+var ach_vbox: VBoxContainer
+var ach_summary: Label
+
+func _build_achievements_overlay() -> void:
+	ach_overlay = Control.new()
+	ach_overlay.size = GameData.SCREEN
+	ach_overlay.visible = false
+	ui_layer.add_child(ach_overlay)
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.72); dim.size = GameData.SCREEN
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	ach_overlay.add_child(dim)
+	var box := _new_panel(Rect2(34, 110, 472, 740), COL_PANEL_HI)
+	ach_overlay.add_child(box)
+	var t := _new_label("업적", 30, COL_GOLD)
+	t.position = Vector2(34, 130); t.size = Vector2(472, 38)
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ach_overlay.add_child(t)
+	ach_summary = _new_label("", 17, COL_DIM)
+	ach_summary.position = Vector2(34, 170); ach_summary.size = Vector2(472, 24)
+	ach_summary.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ach_overlay.add_child(ach_summary)
+	var scroll := ScrollContainer.new()
+	scroll.position = Vector2(52, 204); scroll.size = Vector2(436, 568)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	ach_overlay.add_child(scroll)
+	ach_vbox = VBoxContainer.new()
+	ach_vbox.custom_minimum_size = Vector2(432, 0)
+	ach_vbox.add_theme_constant_override("separation", 8)
+	scroll.add_child(ach_vbox)
+	var close_btn := Button.new()
+	close_btn.text = "닫기"; close_btn.position = Vector2(116, 788); close_btn.size = Vector2(308, 46)
+	close_btn.add_theme_font_size_override("font_size", 19)
+	_style_button(close_btn)
+	close_btn.pressed.connect(func() -> void: ach_overlay.visible = false)
+	ach_overlay.add_child(close_btn)
+
+
+func _open_achievements() -> void:
+	for c in ach_vbox.get_children():
+		c.queue_free()
+	for a in GameData.ACHIEVEMENTS:
+		var done: bool = achieved.has(a["id"])
+		var cur: int = _ach_value(a["stat"])
+		var tgt: int = int(a["target"])
+		var row := Panel.new()
+		row.custom_minimum_size = Vector2(424, 58)
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(0.20, 0.17, 0.30, 0.96) if done else Color(0.12, 0.11, 0.18, 0.96)
+		sb.set_corner_radius_all(10)
+		sb.border_color = COL_GOLD if done else COL_BORDER
+		sb.set_border_width_all(2)
+		row.add_theme_stylebox_override("panel", sb)
+		var nm := _new_label(("✓ " if done else "") + a["name"], 18, COL_GOLD if done else COL_TEXT)
+		nm.position = Vector2(14, 7); row.add_child(nm)
+		var sub := _new_label("", 14, COL_DIM)
+		if done:
+			sub.text = "달성 · 전투력·골드 +%d%%" % int(round(float(a["bonus"]) * 100))
+		else:
+			sub.text = "%s / %s   (+%d%%)" % [_fmt(mini(cur, tgt)), _fmt(tgt), int(round(float(a["bonus"]) * 100))]
+		sub.position = Vector2(14, 32); row.add_child(sub)
+		ach_vbox.add_child(row)
+	ach_summary.text = "달성 %d / %d   ·   현재 보너스 +%d%%" % [achieved.size(), GameData.ACHIEVEMENTS.size(), int(round((ach_mult - 1.0) * 100))]
+	ach_overlay.visible = true
+	if kfont != null:
+		_apply_font_to(ach_overlay)
+
+
+var settings_toggles := []
+
+func _settings_toggle(y: float, label: String, getter: Callable, setter: Callable) -> void:
+	var b := Button.new()
+	b.position = Vector2(110, y); b.size = Vector2(320, 52)
+	b.add_theme_font_size_override("font_size", 21)
+	_style_button(b)
+	b.text = "%s: %s" % [label, "켜짐" if getter.call() else "꺼짐"]
+	b.pressed.connect(func() -> void:
+		setter.call(not getter.call())
+		b.text = "%s: %s" % [label, "켜짐" if getter.call() else "꺼짐"]
+		_play("button")
+		_save())
+	settings_toggles.append({"b": b, "label": label, "get": getter})
+	settings_overlay.add_child(b)
+
+
+func _open_settings() -> void:
+	for tg in settings_toggles:
+		tg["b"].text = "%s: %s" % [tg["label"], "켜짐" if tg["get"].call() else "꺼짐"]
+	settings_overlay.visible = true
 
 
 # ── 환생(프레스티지) + 균열석 상점 오버레이 ──────────────────────
@@ -1037,6 +1192,8 @@ func _open_prestige() -> void:
 func _do_prestige(gain: int) -> void:
 	souls += gain
 	prestige_count += 1
+	last_progress_t = 0.0
+	_check_achievements()
 	level = 1; exp = 0; gold = 0
 	upgrades = {"atk": 0, "hp": 0, "def": 0, "crit": 0, "gold": 0}
 	stage = 1; kills = 0; max_stage_cleared = 0; region_cleared = false
@@ -1296,6 +1453,7 @@ func _spawn_enemy() -> void:
 	# 보스 스테이지인데 아직 도전 전이면: 일반 몹을 파밍하며 '보스 도전' 게이트 표시
 	var at_gate: bool = GameData.is_boss_stage(stage) and not boss_active
 	enemy = GameData.make_enemy(stage, at_gate)
+	_overpower = not enemy["boss"] and p_atk >= int(enemy["max_hp"])   # 한 방 처치 가능 → 빠른 진행
 	enemy_node = _make_enemy(enemy)
 	enemy_node.position = Vector2(ENEMY_X + 180, GROUND_Y)   # 오른쪽에서 슬라이드 인
 	add_child(enemy_node)
@@ -1353,6 +1511,7 @@ func _process(delta: float) -> void:
 		if haste_timer == 0.0 and is_instance_valid(hero):
 			hero.modulate = Color.WHITE
 	_update_skill_buttons()
+	_auto_tick(delta)
 	if busy or enemy.is_empty():
 		return
 	if enemy.get("dying", false):
@@ -1376,6 +1535,54 @@ func _process(delta: float) -> void:
 			_enemy_attack()
 
 
+# ── 자동화(방치) ─────────────────────────────────────────────────
+var _auto_buy_t := 0.0
+func _auto_tick(delta: float) -> void:
+	last_progress_t += delta
+	# 자동 강화: 0.25초마다 살 수 있는 가장 싼 강화 구매(골드 소진까지)
+	if auto_upgrade:
+		_auto_buy_t += delta
+		if _auto_buy_t >= 0.25:
+			_auto_buy_t = 0.0
+			_auto_buy_upgrades()
+	# 자동 스킬: 쿨 끝나면 자동 시전(전투 중)
+	if auto_skill and not busy and not enemy.is_empty() and not enemy.get("dying", false):
+		if smash_cd <= 0:
+			_use_smash()
+		if haste_cd <= 0 and haste_timer <= 0:
+			_use_haste()
+	# 자동 환생: 30초 이상 진행 정체 + 환생 이득이 충분하면 자동 환생
+	if auto_prestige and not busy and last_progress_t > 30.0:
+		var gain := GameData.souls_for(max_stage_cleared)
+		if gain >= 5 and gain >= souls / 4:
+			_play("prestige")
+			_do_prestige(gain)
+			prestige_overlay.visible = false
+
+
+func _auto_buy_upgrades() -> void:
+	var n := 0
+	while n < 25:
+		var best_id := ""
+		var best_cost := -1
+		for udef in GameData.UPGRADES:
+			var c := GameData.upgrade_cost(udef, upgrades[udef["id"]])
+			if best_cost < 0 or c < best_cost:
+				best_cost = c; best_id = udef["id"]
+		if best_id == "" or gold < best_cost:
+			break
+		gold -= best_cost
+		upgrades[best_id] = int(upgrades[best_id]) + 1
+		counters["upgrade"] += 1
+		n += 1
+	if n > 0:
+		_recompute_stats()
+		_update_hud()
+		_update_growth_buttons()
+		_refresh_mission_badge()
+		_check_achievements()
+
+
 func _player_attack() -> void:
 	if enemy.is_empty() or enemy.get("dying", false):
 		return
@@ -1386,7 +1593,7 @@ func _player_attack() -> void:
 	var crit: bool = randf() < p_crit
 	var dmg: int = p_atk
 	if crit:
-		dmg = int(round(dmg * GameData.PLAYER_BASE["crit_mult"]))
+		dmg = int(round(dmg * p_crit_mult))
 	enemy["hp"] = int(enemy["hp"]) - dmg
 	_play("crit" if crit else "slash")
 	if crit:
@@ -1538,6 +1745,7 @@ func _enemy_die() -> void:
 	if was_boss:
 		counters["boss"] += 1
 	_refresh_mission_badge()
+	_check_achievements()
 	_play("boss_victory" if was_boss else "")
 	_spawn_hit_burst(Vector2(ENEMY_X, GROUND_Y - enemy["r"]), Color(enemy["color"]).lightened(0.2), 22 if was_boss else 12)
 	if is_instance_valid(enemy_node):
@@ -1558,9 +1766,11 @@ func _after_kill(was_boss: bool) -> void:
 		boss_active = false
 		_stage_clear(true)
 		return
+	# 압도 시(이전 적을 한 방에) 더 빠른 재등장 — 후반 대기 피로 감소
+	var fast: float = 0.1 if _overpower else 0.35
 	# 보스 게이트에서 파밍 중이면 처치해도 진행 없이 다음 몹(도전 대기)
 	if GameData.is_boss_stage(stage) and not boss_active:
-		await get_tree().create_timer(0.35).timeout
+		await get_tree().create_timer(fast).timeout
 		_spawn_enemy()
 		return
 	kills += 1
@@ -1568,7 +1778,7 @@ func _after_kill(was_boss: bool) -> void:
 		_stage_clear(false)
 	else:
 		_update_progress()
-		await get_tree().create_timer(0.35).timeout
+		await get_tree().create_timer(fast).timeout
 		_spawn_enemy()
 
 
@@ -1579,7 +1789,9 @@ func _stage_clear(was_boss: bool) -> void:
 	var cleared_stage := stage
 	stage += 1
 	counters["stage"] += 1
+	last_progress_t = 0.0
 	_refresh_mission_badge()
+	_check_achievements()
 	_save()
 	if was_boss:
 		busy = true
@@ -1628,10 +1840,12 @@ func _on_upgrade_pressed(id: String) -> void:
 func _recompute_stats() -> void:
 	var b: Dictionary = GameData.PLAYER_BASE
 	var passive := GameData.global_mult(souls)
-	var atk_mult := passive * (1.0 + _soul_lv("s_atk") * float(GameData.soul_upgrade_def("s_atk")["per"]))
-	p_gold_mult = passive * (1.0 + _soul_lv("s_gold") * float(GameData.soul_upgrade_def("s_gold")["per"]))
+	var atk_mult := passive * (1.0 + _soul_lv("s_atk") * float(GameData.soul_upgrade_def("s_atk")["per"])) * ach_mult
+	p_gold_mult = passive * (1.0 + _soul_lv("s_gold") * float(GameData.soul_upgrade_def("s_gold")["per"])) * ach_mult
 	var hp_mult := 1.0 + _soul_lv("s_hp") * float(GameData.soul_upgrade_def("s_hp")["per"])
 	p_off_eff = clampf(GameData.OFFLINE_EFFICIENCY + _soul_lv("s_off") * float(GameData.soul_upgrade_def("s_off")["per"]), 0.0, 0.95)
+	p_crit_mult = float(b["crit_mult"]) + _soul_lv("s_crit") * float(GameData.soul_upgrade_def("s_crit")["per"])
+	p_cd_scale = clampf(1.0 - _soul_lv("s_cd") * float(GameData.soul_upgrade_def("s_cd")["per"]), 0.4, 1.0)
 	p_global_mult = atk_mult
 	var raw_atk: int = int(b["atk"]) + (level - 1) * GameData.LVL_ATK + upgrades["atk"] * GameData.upgrade_def("atk")["per"]
 	p_atk = int(round(raw_atk * atk_mult))
@@ -1640,7 +1854,7 @@ func _recompute_stats() -> void:
 	p_crit = float(b["crit"]) + upgrades["crit"] * GameData.upgrade_def("crit")["per"]
 	p_interval = float(b["atk_interval"])
 	p_hp = mini(p_hp, p_max_hp)
-	p_power = int(round(p_atk / p_interval * (1.0 + p_crit) + p_max_hp * 0.4 + p_def * 6.0))
+	p_power = int(round(p_atk / p_interval * (1.0 + p_crit * (p_crit_mult - 1.0)) + p_max_hp * 0.4 + p_def * 6.0))
 
 
 func _soul_lv(id: String) -> int:
@@ -1785,7 +1999,8 @@ func _state_dict() -> Dictionary:
 		"sound_on": sound_on, "seen_intro": seen_intro,
 		"counters": counters, "missions": missions,
 		"daily_day": daily_day, "daily_streak": daily_streak,
-		"auto_boss": auto_boss,
+		"auto_boss": auto_boss, "achieved": achieved,
+		"auto_upgrade": auto_upgrade, "auto_skill": auto_skill, "auto_prestige": auto_prestige,
 	}
 
 
@@ -1815,6 +2030,10 @@ func _apply_save(s: Dictionary) -> void:
 	daily_day = int(s.get("daily_day", 0))
 	daily_streak = int(s.get("daily_streak", 0))
 	auto_boss = bool(s.get("auto_boss", false))
+	achieved = s.get("achieved", []) if typeof(s.get("achieved")) == TYPE_ARRAY else []
+	auto_upgrade = bool(s.get("auto_upgrade", false))
+	auto_skill = bool(s.get("auto_skill", false))
+	auto_prestige = bool(s.get("auto_prestige", false))
 	var su = s.get("soul_upgrades", {})
 	for id in soul_upgrades.keys():
 		soul_upgrades[id] = int(su.get(id, 0)) if typeof(su) == TYPE_DICTIONARY else 0
@@ -1830,6 +2049,8 @@ func _reset_progress() -> void:
 	counters = {"kill": 0, "stage": 0, "upgrade": 0, "boss": 0, "gold": 0}
 	missions = []; daily_day = 0; daily_streak = 0
 	boss_active = false; auto_boss = false
+	achieved = []; ach_mult = 1.0
+	auto_upgrade = false; auto_skill = false; auto_prestige = false
 	_refresh_auto_btn()
 	_ensure_missions()
 	_refresh_mission_badge()
