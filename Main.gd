@@ -922,9 +922,39 @@ func _shadow(width: float) -> Sprite2D:
 	return s
 
 
+# 16px 픽셀 스프라이트를 또렷하게(nearest) 표시. 발 바닥이 y=0에 오도록 정렬.
+func _pixel_sprite(name: String, disp_h: float, tint := Color.WHITE) -> Sprite2D:
+	var path := "res://assets/sprites/%s.png" % name
+	if not ResourceLoader.exists(path):
+		return null
+	var s := Sprite2D.new()
+	s.texture = load(path)
+	s.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	s.modulate = tint
+	var th: float = maxf(1.0, s.texture.get_height())
+	var sc := disp_h / th
+	s.scale = Vector2(sc, sc)
+	s.centered = false
+	s.position = Vector2(-s.texture.get_width() * sc * 0.5, -s.texture.get_height() * sc)
+	return s
+
+
 func _make_hero() -> Node2D:
 	var root := Node2D.new()
 	root.add_child(_shadow(120))
+	var aura0 := _gen_sprite("glow", Vector2(0, -50), Color(0.45, 0.6, 1.0, 0.14))
+	if aura0.texture != null:
+		aura0.scale = Vector2(0.7, 0.9)
+		root.add_child(aura0)
+	var spr := _pixel_sprite("hero", 84.0)
+	if spr != null:
+		root.add_child(spr)
+		return root
+	# 폴백: 절차적 도형 영웅
+	return _make_hero_shapes(root)
+
+
+func _make_hero_shapes(root: Node2D) -> Node2D:
 	# 은은한 아우라
 	var aura := _gen_sprite("glow", Vector2(0, -62), Color(0.45, 0.6, 1.0, 0.16))
 	if aura.texture != null:
@@ -969,10 +999,15 @@ func _make_enemy(e: Dictionary) -> Node2D:
 	var col: Color = e["color"]
 	root.add_child(_shadow(r * 2.6))
 	if e["boss"]:
-		var ba := _gen_sprite("glow", Vector2(0, -r), Color(1.0, 0.3, 0.3, 0.22))
+		var ba := _gen_sprite("glow", Vector2(0, -r), Color(col.r, col.g * 0.5, col.b * 0.5, 0.26))
 		if ba.texture != null:
-			ba.scale = Vector2(r / 110.0, r / 110.0)
+			ba.scale = Vector2(r / 95.0, r / 95.0)
 			root.add_child(ba)
+	# Kenney CC0 픽셀 스프라이트 우선, 없으면 절차적 도형
+	var spr := _pixel_sprite(String(e.get("sprite", "")), r * 2.3, e.get("tint", Color.WHITE))
+	if spr != null:
+		root.add_child(spr)
+		return root
 	# 외곽선
 	root.add_child(_circle_poly(Vector2(0, -r), r + 2.5, Color(0.05, 0.04, 0.07)))
 	# 몸체(아래 그늘 → 본체 → 위 하이라이트)

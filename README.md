@@ -69,5 +69,7 @@ Web 빌드:
 
 ## 크레딧 / 라이선스
 
-모든 아트·효과음·BGM은 `reset/gen_*.py`로 생성한 **절차적 자체제작(CC0)**. 외부 에셋·AI 이미지 생성 미사용.
-한글 폰트(`malgun.ttf`)는 저장소에 포함하지 않으며(상용), 없으면 기본 폰트로 동작한다.
+- **캐릭터·몬스터 스프라이트**: [Kenney](https://kenney.nl) — *Tiny Dungeon* 팩, **CC0**. `assets/sprites/`.
+- **배경·파티클·효과음·BGM**: `reset/gen_art.py`·`reset/gen_audio.py`로 생성한 **절차적 자체제작(CC0)**. `assets/gen*`.
+- AI 이미지 생성 미사용. 모두 CC0라 상업 배포 가능(저작자 표시 의무 없음, 위는 감사 표기).
+- 한글 폰트(`malgun.ttf`)는 저장소에 포함하지 않으며(상용), 없으면 기본 폰트로 동작한다.
