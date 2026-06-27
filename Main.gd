@@ -70,6 +70,7 @@ var lbl_level: Label
 var exp_fill: ColorRect
 var lbl_progress: Label
 var hero: Node2D
+var hero_sprite: Sprite2D
 var hero_hp_fill: ColorRect
 var enemy_node: Node2D
 var enemy_hp_fill: ColorRect
@@ -119,6 +120,7 @@ func _ready() -> void:
 		_apply_save(s)
 	_recompute_stats()
 	p_hp = p_max_hp
+	_apply_hero_skin()
 	_ensure_missions()
 	_spawn_enemy()
 	_update_hud()
@@ -182,6 +184,10 @@ func _run_shot_sequence() -> void:
 	_open_missions()
 	await get_tree().create_timer(0.4).timeout
 	_save_shot("r09_missions")
+	mission_overlay.visible = false
+	stage = 45; kills = 3; prestige_count = 2; _apply_hero_skin(); _spawn_enemy()  # 3지역 + 승급 영웅
+	await get_tree().create_timer(0.5).timeout
+	_save_shot("r10_region3")
 	get_tree().quit(0)
 
 var _onboard_ov: Control
@@ -406,7 +412,12 @@ var bg_layer: TextureRect
 func _update_sky() -> void:
 	if bg_layer == null:
 		return
-	var name := "bg_dungeon" if stage <= GameData.REGIONS[0]["end"] else "bg_dungeon2"
+	var ri := 0
+	for i in range(GameData.REGIONS.size()):
+		if stage <= int(GameData.REGIONS[i]["end"]):
+			ri = i; break
+		ri = i
+	var name := "bg_dungeon" if ri == 0 else "bg_dungeon%d" % (ri + 1)
 	var tex := _load_gen(name)
 	if tex != null:
 		bg_layer.texture = tex
@@ -988,11 +999,13 @@ func _do_prestige(gain: int) -> void:
 	_recompute_stats()
 	p_hp = p_max_hp
 	busy = false
+	_apply_hero_skin()
 	_save()
 	_update_hud()
 	_update_growth_buttons()
 	_spawn_enemy()
-	_flash_notice("환생!  전투력 x%.2f" % p_global_mult)
+	var skin_note := "  외형 승급!" if prestige_count <= 2 else ""
+	_flash_notice("환생!  전투력 x%.2f%s" % [p_global_mult, skin_note])
 
 
 # ── 오프라인 보상 ────────────────────────────────────────────────
@@ -1126,12 +1139,31 @@ func _make_hero() -> Node2D:
 	if aura0.texture != null:
 		aura0.scale = Vector2(0.7, 0.9)
 		root.add_child(aura0)
-	var spr := _pixel_sprite("hero", 84.0)
+	var spr := _pixel_sprite(_hero_skin_name(), 84.0)
 	if spr != null:
+		hero_sprite = spr
 		root.add_child(spr)
 		return root
 	# 폴백: 절차적 도형 영웅
 	return _make_hero_shapes(root)
+
+
+# 환생 횟수에 따라 영웅 외형이 승급(장비 강화 느낌).
+func _hero_skin_name() -> String:
+	return ["hero", "hero1", "hero2"][mini(prestige_count, 2)]
+
+
+func _apply_hero_skin() -> void:
+	if hero_sprite == null or not is_instance_valid(hero_sprite):
+		return
+	var path := "res://assets/sprites/%s.png" % _hero_skin_name()
+	if not ResourceLoader.exists(path):
+		return
+	var tex: Texture2D = load(path)
+	hero_sprite.texture = tex
+	var sc := 84.0 / maxf(1.0, tex.get_height())
+	hero_sprite.scale = Vector2(sc, sc)
+	hero_sprite.position = Vector2(-tex.get_width() * sc * 0.5, -tex.get_height() * sc)
 
 
 func _make_hero_shapes(root: Node2D) -> Node2D:

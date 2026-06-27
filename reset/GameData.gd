@@ -69,6 +69,22 @@ const REGIONS := [
 			{"name": "협곡의 지배자", "color": Color(0.95, 0.35, 0.25), "r": 66.0, "sprite": "horned", "tint": Color(1.45, 0.68, 0.52)},
 		],
 	},
+	{
+		"name": "얼어붙은 심연", "end": 60, "sky": Color(0.10, 0.14, 0.24),
+		"enemy_looks": [
+			{"name": "서리 망령",   "color": Color(0.55, 0.70, 0.95), "r": 30.0, "sprite": "wraith", "tint": Color(0.75, 0.90, 1.35)},
+			{"name": "얼음 슬라임", "color": Color(0.50, 0.75, 0.95), "r": 28.0, "sprite": "ghost",  "tint": Color(0.70, 0.95, 1.40)},
+			{"name": "동토 늑대",   "color": Color(0.60, 0.70, 0.85), "r": 30.0, "sprite": "wolf",   "tint": Color(0.78, 0.88, 1.20)},
+			{"name": "심연 술사",   "color": Color(0.62, 0.58, 0.92), "r": 30.0, "sprite": "mage",   "tint": Color(0.80, 0.82, 1.35)},
+			{"name": "한기 거미",   "color": Color(0.55, 0.65, 0.92), "r": 26.0, "sprite": "spider", "tint": Color(0.72, 0.85, 1.35)},
+		],
+		"boss_looks": [
+			{"name": "빙결군주 헬름", "color": Color(0.55, 0.75, 1.0),  "r": 56.0, "sprite": "horned", "tint": Color(0.72, 0.90, 1.45)},
+			{"name": "심연 거미 여왕","color": Color(0.50, 0.62, 0.95), "r": 60.0, "sprite": "spider", "tint": Color(0.70, 0.85, 1.45)},
+			{"name": "얼어붙은 망령왕","color": Color(0.62, 0.72, 1.0), "r": 58.0, "sprite": "wraith", "tint": Color(0.78, 0.90, 1.45)},
+			{"name": "심연의 지배자", "color": Color(0.55, 0.70, 1.0),  "r": 68.0, "sprite": "mage",   "tint": Color(0.75, 0.85, 1.50)},
+		],
+	},
 ]
 
 # 스테이지가 속한 지역(마지막 지역으로 클램프 — 그 너머는 마지막 지역 테마 유지).
