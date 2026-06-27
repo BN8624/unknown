@@ -52,6 +52,15 @@ var e_atk_timer := 0.0
 var boss_atk_count := 0
 var boss_winding := false    # 보스 강공격 예열 중
 var busy := false            # 보상 표시 중엔 전투 정지
+# 액티브 스킬
+const SMASH_CD := 9.0
+const HASTE_CD := 18.0
+const HASTE_DUR := 6.0
+var smash_cd := 0.0
+var haste_cd := 0.0
+var haste_timer := 0.0
+var smash_btn: Button
+var haste_btn: Button
 var kfont: FontFile
 
 # UI 참조
@@ -98,6 +107,7 @@ func _ready() -> void:
 	_build_vignette()
 	_build_hud()
 	_build_growth_panel()
+	_build_skills()
 	_build_notice()
 	_build_reward_overlay()
 	_build_settings_overlay()
@@ -659,6 +669,79 @@ func _make_upgrade_row(udef: Dictionary, y: float) -> void:
 	up_rows[id] = {"panel": panel, "name": name_lbl, "value": value_lbl, "cost": cost_lbl, "button": btn}
 
 
+# ── 액티브 스킬 ──────────────────────────────────────────────────
+func _build_skills() -> void:
+	smash_btn = _make_skill_btn("강타", Vector2(452, 452), _use_smash)
+	haste_btn = _make_skill_btn("가속", Vector2(452, 534), _use_haste)
+
+
+func _make_skill_btn(label: String, pos: Vector2, cb: Callable) -> Button:
+	var b := Button.new()
+	b.position = pos
+	b.size = Vector2(72, 72)
+	b.text = label
+	b.add_theme_font_size_override("font_size", 20)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.30, 0.20, 0.42, 0.95)
+	sb.set_corner_radius_all(36)
+	sb.border_color = COL_GOLD
+	sb.set_border_width_all(2)
+	var pressed := sb.duplicate(); pressed.bg_color = Color(0.42, 0.30, 0.55)
+	b.add_theme_stylebox_override("normal", sb)
+	b.add_theme_stylebox_override("hover", sb)
+	b.add_theme_stylebox_override("pressed", pressed)
+	b.add_theme_stylebox_override("disabled", sb)
+	b.add_theme_color_override("font_color", COL_TEXT)
+	b.add_theme_color_override("font_disabled_color", Color(0.5, 0.48, 0.58))
+	b.pressed.connect(cb)
+	add_child(b)
+	return b
+
+
+func _use_smash() -> void:
+	if smash_cd > 0 or enemy.is_empty() or enemy.get("dying", false):
+		return
+	_btn_pop(smash_btn)
+	smash_cd = SMASH_CD
+	var dmg := int(round(p_atk * 8.0))
+	enemy["hp"] = int(enemy["hp"]) - dmg
+	_play("crit")
+	_hitstop(0.08)
+	_screen_flash(Color(1.0, 0.85, 0.3, 0.25))
+	var hp := Vector2(ENEMY_X - enemy["r"] * 0.4, GROUND_Y - enemy["r"])
+	_slash_fx(hp, true); _slash_fx(hp + Vector2(0, -10), true)
+	_spawn_hit_burst(hp, Color(1.0, 0.8, 0.3, 0.95), 20)
+	_float_text(Vector2(ENEMY_X, GROUND_Y - enemy["r"] * 2.0 - 6), str(dmg), Color(1.0, 0.7, 0.2), true)
+	_update_enemy_hp()
+	if int(enemy["hp"]) <= 0:
+		_enemy_die()
+
+
+func _use_haste() -> void:
+	if haste_cd > 0:
+		return
+	_btn_pop(haste_btn)
+	haste_cd = HASTE_CD
+	haste_timer = HASTE_DUR
+	_play("level_up")
+	_flash_notice("가속!")
+	if is_instance_valid(hero):
+		hero.modulate = Color(1.4, 1.4, 1.8)
+
+
+func _update_skill_buttons() -> void:
+	if smash_btn == null:
+		return
+	smash_btn.text = "강타" if smash_cd <= 0 else "%d" % ceil(smash_cd)
+	smash_btn.disabled = smash_cd > 0
+	if haste_timer > 0:
+		haste_btn.text = "%d" % ceil(haste_timer); haste_btn.disabled = true
+	elif haste_cd > 0:
+		haste_btn.text = "%d" % ceil(haste_cd); haste_btn.disabled = true
+	else:
+		haste_btn.text = "가속"; haste_btn.disabled = false
+
+
 func _build_notice() -> void:
 	notice = _new_label("", 30, COL_GOLD)
 	notice.position = Vector2(0, 300)
@@ -1181,12 +1264,28 @@ func _process(delta: float) -> void:
 	if save_timer >= 5.0:
 		save_timer = 0.0
 		_save()
+	# 스킬 쿨다운·가속 진행
+	if smash_cd > 0: smash_cd = maxf(0.0, smash_cd - delta)
+	if haste_cd > 0: haste_cd = maxf(0.0, haste_cd - delta)
+	if haste_timer > 0:
+		haste_timer = maxf(0.0, haste_timer - delta)
+		if haste_timer == 0.0 and is_instance_valid(hero):
+			hero.modulate = Color.WHITE
+	_update_skill_buttons()
 	if busy or enemy.is_empty():
 		return
 	if enemy.get("dying", false):
 		return
+	# 보스 분노: 체력 30% 이하에서 1회, 공격 속도 상승
+	if enemy.get("boss", false) and not enemy.get("enraged", false) and int(enemy["hp"]) < int(enemy["max_hp"]) * 0.3:
+		enemy["enraged"] = true
+		enemy["interval"] = float(enemy["interval"]) * 0.6
+		_flash_notice("보스 분노!")
+		if is_instance_valid(enemy_node):
+			enemy_node.modulate = Color(1.6, 0.7, 0.7)
+	var atk_interval := p_interval * (0.5 if haste_timer > 0 else 1.0)
 	p_atk_timer += delta
-	if p_atk_timer >= p_interval:
+	if p_atk_timer >= atk_interval:
 		p_atk_timer = 0.0
 		_player_attack()
 	if not boss_winding:
