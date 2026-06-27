@@ -218,9 +218,13 @@ func _run_shot_sequence() -> void:
 	stage = 10; kills = 0; boss_active = false; _spawn_enemy()  # 보스 관문(도전 버튼)
 	await get_tree().create_timer(0.5).timeout
 	_save_shot("r11_gate")
+	stage = 20  # 뿔 보스(균열의 수호자) → 전용 초상화 표시
 	_boss_intro()  # 보스 도전 컷(초상화)
 	await get_tree().create_timer(0.6).timeout
 	_save_shot("r11b_bossintro")
+	stage = 5; _boss_intro()  # 거미 보스 → 초상화 없이 이름 배너(불일치 방지)
+	await get_tree().create_timer(0.6).timeout
+	_save_shot("r11c_bossname")
 	# 업적 오버레이(일부 달성 상태로)
 	max_stage_cleared = 45; counters = {"kill": 5200, "stage": 50, "upgrade": 230, "boss": 12, "gold": 2500000}
 	achieved = ["f10","f25","f40","k100","k1k","b10","u50","u200","p1"]; _recompute_ach_mult(); _recompute_stats()
@@ -549,13 +553,13 @@ func _build_background() -> void:
 	bg_layer.texture = _load_gen("bg_dungeon")
 	bg_layer.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	bg_layer.size = GameData.SCREEN
-	bg_layer.modulate = Color(0.56, 0.55, 0.58)   # 배경 톤다운(보라 과함 완화 → 캐릭터가 살아남)
+	bg_layer.modulate = Color(0.78, 0.76, 0.78)   # 살짝만 톤다운(너무 어둡지 않게)
 	bg_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg_layer)
 
-	# 배경 위 어두운 스크림(채도·밝기 더 눌러 깊이감)
+	# 배경 위 옅은 스크림(채도만 살짝 눌러 캐릭터 분리)
 	var scrim := ColorRect.new()
-	scrim.color = Color(0.05, 0.05, 0.07, 0.32)
+	scrim.color = Color(0.06, 0.06, 0.08, 0.14)
 	scrim.size = GameData.SCREEN
 	scrim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(scrim)
@@ -838,12 +842,12 @@ func _start_boss_challenge() -> void:
 
 # 보스 도전 컷: 초상화가 확 떠오르며 보스 이름 표시(1.3초, 비차단).
 func _boss_intro() -> void:
-	if _shot_mode and false:
-		return
-	var path := "res://assets/ui/boss_portrait.png"
-	if not ResourceLoader.exists(path):
-		return
-	var bname: String = GameData.make_enemy(stage).get("name", "보스")
+	var bdef := GameData.make_enemy(stage)
+	var bname: String = bdef.get("name", "보스")
+	var bsprite: String = bdef.get("sprite", "")
+	# 그 보스에 맞는 전용 초상화가 있을 때만 사용(이름과 안 맞는 그림 금지)
+	var port_path := "res://assets/ui/portrait_%s.png" % bsprite
+	var has_portrait := ResourceLoader.exists(port_path)
 	var ov := Control.new(); ov.size = GameData.SCREEN
 	ov.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ui_layer.add_child(ov)
@@ -851,19 +855,31 @@ func _boss_intro() -> void:
 	dim.color = Color(0, 0, 0, 0.0); dim.size = GameData.SCREEN
 	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ov.add_child(dim)
-	var port := TextureRect.new()
-	port.texture = load(path)
-	port.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	port.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	port.size = Vector2(340, 340)
-	port.position = Vector2(GameData.SCREEN.x * 0.5 - 170, 168)
-	port.pivot_offset = Vector2(170, 170)
-	port.scale = Vector2(0.6, 0.6)
-	port.modulate = Color(1, 1, 1, 0)
-	port.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	ov.add_child(port)
-	var nm := _new_label("[보스]  " + bname, 30, COL_HP_BOSS)
-	nm.position = Vector2(0, 520); nm.size = Vector2(GameData.SCREEN.x, 40)
+	var name_y := 520.0
+	if has_portrait:
+		var port := TextureRect.new()
+		port.texture = load(port_path)
+		port.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		port.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		port.size = Vector2(340, 340)
+		port.position = Vector2(GameData.SCREEN.x * 0.5 - 170, 168)
+		port.pivot_offset = Vector2(170, 170)
+		port.scale = Vector2(0.6, 0.6)
+		port.modulate = Color(1, 1, 1, 0)
+		port.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		ov.add_child(port)
+		var ptw := create_tween()
+		ptw.tween_property(port, "scale", Vector2(1.0, 1.0), 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		ptw.parallel().tween_property(port, "modulate", Color(1, 1, 1, 1), 0.25)
+	else:
+		name_y = 360.0   # 초상화 없으면 이름 배너를 가운데로
+	var head := _new_label("⚔  보스 등장", 24, COL_GOLD)
+	head.position = Vector2(0, name_y - 46); head.size = Vector2(GameData.SCREEN.x, 30)
+	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	head.modulate = Color(1, 1, 1, 0)
+	ov.add_child(head)
+	var nm := _new_label("[보스]  " + bname, 32, COL_HP_BOSS)
+	nm.position = Vector2(0, name_y); nm.size = Vector2(GameData.SCREEN.x, 44)
 	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	nm.modulate = Color(1, 1, 1, 0)
 	ov.add_child(nm)
@@ -871,10 +887,9 @@ func _boss_intro() -> void:
 		_apply_font_to(ov)
 	_play("boss_appear")
 	var tw := create_tween()
-	tw.tween_property(dim, "color", Color(0, 0, 0, 0.55), 0.2)
-	tw.parallel().tween_property(port, "scale", Vector2(1.0, 1.0), 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tw.parallel().tween_property(port, "modulate", Color(1, 1, 1, 1), 0.25)
+	tw.tween_property(dim, "color", Color(0.12, 0.0, 0.02, 0.6), 0.2)
 	tw.parallel().tween_property(nm, "modulate", Color(1, 1, 1, 1), 0.3)
+	tw.parallel().tween_property(head, "modulate", Color(1, 1, 1, 1), 0.3)
 	tw.tween_interval(0.55)
 	tw.tween_property(ov, "modulate", Color(1, 1, 1, 0), 0.35)
 	tw.parallel().tween_property(dim, "color", Color(0, 0, 0, 0), 0.35)
@@ -1465,9 +1480,10 @@ func _pixel_sprite(name: String, disp_h: float, tint := Color.WHITE) -> Sprite2D
 func _make_hero() -> Node2D:
 	var root := Node2D.new()
 	root.add_child(_shadow(140))
-	var hl := _light(Vector2(0, -54), 1.0, Color(0.55, 0.65, 1.0, 0.22))   # 영웅 발치 광원
-	if hl.texture != null:
-		root.add_child(hl)
+	# 영웅 뒤 림라이트(어두운 갑옷이 어두운 배경에 묻히지 않게 밝게 분리)
+	var back := _light(Vector2(0, -56), 1.5, Color(0.85, 0.88, 1.0, 0.34))
+	if back.texture != null:
+		root.add_child(back)
 	var spr := _pixel_sprite(_hero_skin_name(), 104.0)
 	if spr != null:
 		hero_sprite = spr
