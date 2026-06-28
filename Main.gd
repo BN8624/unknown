@@ -254,8 +254,10 @@ func _show_onboarding() -> void:
 	ov.size = GameData.SCREEN
 	ui_layer.add_child(ov)
 	_onboard_ov = ov
-	# 타이틀 배경 아트(균열 앞의 기사)
-	var scene := _ui_icon("scene_rift", Vector2.ZERO, 0)
+	# 타이틀 배경 아트(SD 영웅 스플래시)
+	var scene := _ui_icon("title_splash", Vector2.ZERO, 0)
+	if scene == null:
+		scene = _ui_icon("scene_rift", Vector2.ZERO, 0)
 	if scene != null:
 		scene.size = GameData.SCREEN
 		scene.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
@@ -2394,15 +2396,26 @@ func _new_panel(rect: Rect2, col: Color) -> Panel:
 	p.position = rect.position
 	p.size = rect.size
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# 9슬라이스 텍스처 패널(금테 네이비) 우선, 없으면 플랫
+	var tname := "ui_panel_hi" if col == COL_PANEL_HI else "ui_panel"
+	var tpath := "res://assets/ui/%s.png" % tname
+	if ResourceLoader.exists(tpath):
+		var st := StyleBoxTexture.new()
+		st.texture = load(tpath)
+		st.set_texture_margin_all(26)
+		st.content_margin_left = 16; st.content_margin_right = 16
+		st.content_margin_top = 12; st.content_margin_bottom = 12
+		p.add_theme_stylebox_override("panel", st)
+		return p
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = col
 	sb.set_corner_radius_all(16)
 	sb.border_color = COL_BORDER
 	sb.set_border_width_all(2)
 	sb.border_width_top = 1
-	sb.border_width_bottom = 3            # 아래 두껍게 → 입체감
+	sb.border_width_bottom = 3
 	sb.shadow_color = COL_SHADOW
-	sb.shadow_size = 8                    # 소프트 드롭 섀도우 → 배경에서 떠 보임
+	sb.shadow_size = 8
 	sb.shadow_offset = Vector2(0, 4)
 	sb.content_margin_left = 14
 	sb.content_margin_right = 14
@@ -2433,18 +2446,27 @@ func _btn_box(bg: Color, top_bevel: bool) -> StyleBoxFlat:
 	return s
 
 
+func _btn_tex(name: String) -> StyleBoxTexture:
+	var st := StyleBoxTexture.new()
+	st.texture = load("res://assets/ui/%s.png" % name)
+	st.set_texture_margin_all(22)
+	st.content_margin_left = 14; st.content_margin_right = 14
+	st.content_margin_top = 8; st.content_margin_bottom = 10
+	return st
+
+
 func _style_button(b: Button) -> void:
-	var normal := _btn_box(COL_BTN, true)
-	var hover := _btn_box(COL_BTN_HI, true)
-	var pressed := _btn_box(COL_BTN_HI.darkened(0.1), false)
-	pressed.border_width_bottom = 2
-	pressed.shadow_size = 2
-	var disabled := _btn_box(Color(0.14, 0.12, 0.20), true)
-	disabled.border_color = Color(0.30, 0.27, 0.40)
-	b.add_theme_stylebox_override("normal", normal)
-	b.add_theme_stylebox_override("hover", hover)
-	b.add_theme_stylebox_override("pressed", pressed)
-	b.add_theme_stylebox_override("disabled", disabled)
+	if ResourceLoader.exists("res://assets/ui/ui_btn_normal.png"):
+		b.add_theme_stylebox_override("normal", _btn_tex("ui_btn_normal"))
+		b.add_theme_stylebox_override("hover", _btn_tex("ui_btn_normal"))
+		b.add_theme_stylebox_override("pressed", _btn_tex("ui_btn_pressed"))
+		b.add_theme_stylebox_override("disabled", _btn_tex("ui_btn_disabled"))
+	else:
+		var normal := _btn_box(COL_BTN, true)
+		b.add_theme_stylebox_override("normal", normal)
+		b.add_theme_stylebox_override("hover", _btn_box(COL_BTN_HI, true))
+		b.add_theme_stylebox_override("pressed", _btn_box(COL_BTN_HI.darkened(0.1), false))
+		b.add_theme_stylebox_override("disabled", _btn_box(Color(0.14, 0.12, 0.20), true))
 	b.add_theme_color_override("font_color", COL_TEXT)
 	b.add_theme_color_override("font_hover_color", Color(1, 1, 1))
 	b.add_theme_color_override("font_disabled_color", Color(0.5, 0.47, 0.6))
