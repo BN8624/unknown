@@ -90,6 +90,8 @@ var exp_fill: ColorRect
 var lbl_progress: Label
 var hero: Node2D
 var hero_sprite: Sprite2D
+var hero_vis: CanvasItem
+var hero_anim: AnimatedSprite2D
 var hero_hp_fill: ColorRect
 var enemy_node: Node2D
 var enemy_hp_fill: ColorRect
@@ -1461,7 +1463,80 @@ void fragment() {
 	return _outline_mat
 
 
-# 캐릭터 스프라이트 통합 로더: SD 일러스트(assets/sd, 리니어·외곽선X) 우선, 없으면 픽셀(assets/sprites, 니어레스트·외곽선).
+const ANIM_STATES := ["idle", "attack", "hit", "death"]
+
+# 캐릭터 비주얼 노드: 애니 시트가 있으면 AnimatedSprite2D, 없으면 정적 Sprite2D(SD 또는 픽셀).
+func _make_char(name: String, disp_h: float, tint := Color.WHITE) -> CanvasItem:
+	var anim := _build_anim(name, disp_h, tint)
+	if anim != null:
+		return anim
+	return _char_sprite(name, disp_h, tint)
+
+
+# 가로 스프라이트 시트(정사각 셀)들로 AnimatedSprite2D 구성. 발 바닥 접지·스케일·idle 재생.
+func _build_anim(name: String, disp_h: float, tint := Color.WHITE) -> AnimatedSprite2D:
+	var any := false
+	var sf := SpriteFrames.new()
+	if sf.has_animation("default"):
+		sf.remove_animation("default")
+	var ref_used := Rect2()
+	for st in ANIM_STATES:
+		var path := "res://assets/sd/anim/%s_%s.png" % [name, st]
+		if not ResourceLoader.exists(path):
+			continue
+		var sheet: Texture2D = load(path)
+		var ch: int = sheet.get_height()
+		var n: int = maxi(1, int(sheet.get_width() / float(ch)))
+		sf.add_animation(st)
+		sf.set_animation_loop(st, st == "idle")
+		sf.set_animation_speed(st, 10.0)
+		for i in range(n):
+			var at := AtlasTexture.new()
+			at.atlas = sheet
+			at.region = Rect2(i * ch, 0, ch, ch)
+			sf.add_frame(st, at)
+		if not any:   # 첫 시트의 첫 셀로 접지 기준 산출
+			ref_used = sheet.get_image().get_region(Rect2(0, 0, ch, ch)).get_used_rect()
+		any = true
+	if not any:
+		return null
+	var asp := AnimatedSprite2D.new()
+	asp.sprite_frames = sf
+	asp.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	asp.modulate = tint
+	asp.centered = false
+	var ch2: float = maxf(1.0, ref_used.size.y)
+	var sc := disp_h / ch2
+	asp.scale = Vector2(sc, sc)
+	asp.offset = Vector2(-(ref_used.position.x + ref_used.size.x * 0.5), -(ref_used.position.y + ref_used.size.y))
+	var first := "idle"
+	if not sf.has_animation("idle"):
+		for s in ANIM_STATES:
+			if sf.has_animation(s):
+				first = s
+				break
+	asp.play(first)
+	asp.animation_finished.connect(_on_char_anim_done.bind(asp))
+	return asp
+
+
+# 원샷(attack/hit) 끝나면 idle 복귀. death는 마지막 프레임 유지.
+func _on_char_anim_done(asp: AnimatedSprite2D) -> void:
+	if not is_instance_valid(asp):
+		return
+	var a := asp.animation
+	if (a == "attack" or a == "hit") and asp.sprite_frames.has_animation("idle"):
+		asp.play("idle")
+
+
+# 비주얼 노드에 상태 애니 재생(없으면 무시).
+func _play_char_anim(node: Node, state: String) -> void:
+	if node is AnimatedSprite2D and is_instance_valid(node):
+		if node.sprite_frames != null and node.sprite_frames.has_animation(state):
+			node.play(state)
+
+
+# 캐릭터 스프라이트 통합 로더(정적): SD 일러스트 우선, 없으면 픽셀.
 func _char_sprite(name: String, disp_h: float, tint := Color.WHITE) -> Sprite2D:
 	var sd := "res://assets/sd/%s.png" % name
 	if ResourceLoader.exists(sd):
@@ -1514,10 +1589,12 @@ func _make_hero() -> Node2D:
 		root.add_child(back)
 	var hkey := _hero_skin_name()
 	var hdisp := 150.0 if ResourceLoader.exists("res://assets/sd/%s.png" % hkey) else 104.0
-	var spr := _char_sprite(hkey, hdisp)
-	if spr != null:
-		hero_sprite = spr
-		root.add_child(spr)
+	var vis := _make_char(hkey, hdisp)
+	if vis != null:
+		hero_vis = vis
+		hero_anim = vis if vis is AnimatedSprite2D else null
+		hero_sprite = vis if vis is Sprite2D else null
+		root.add_child(vis)
 		return root
 	# 폴백: 절차적 도형 영웅
 	return _make_hero_shapes(root)
@@ -1529,15 +1606,17 @@ func _hero_skin_name() -> String:
 
 
 func _apply_hero_skin() -> void:
-	if hero_sprite == null or not is_instance_valid(hero) or not is_instance_valid(hero_sprite):
+	if not is_instance_valid(hero) or hero_vis == null or not is_instance_valid(hero_vis):
 		return
 	var hkey := _hero_skin_name()
 	var hdisp := 150.0 if ResourceLoader.exists("res://assets/sd/%s.png" % hkey) else 104.0
-	var ns := _char_sprite(hkey, hdisp)
+	var ns := _make_char(hkey, hdisp)
 	if ns == null:
 		return
-	hero_sprite.queue_free()   # 옛 스프라이트 교체(필터·셰이더 다를 수 있어 노드 재생성)
-	hero_sprite = ns
+	hero_vis.queue_free()   # 외형 노드 교체(애니/정적·필터 다를 수 있어 재생성)
+	hero_vis = ns
+	hero_anim = ns if ns is AnimatedSprite2D else null
+	hero_sprite = ns if ns is Sprite2D else null
 	hero.add_child(ns)
 
 
@@ -1589,14 +1668,15 @@ func _make_enemy(e: Dictionary) -> Node2D:
 		var ba := _light(Vector2(0, -r), r / 80.0, Color(col.r, col.g * 0.5, col.b * 0.5, 0.34))
 		if ba.texture != null:
 			root.add_child(ba)
-	# SD 일러스트(있으면) → 픽셀 → 도형. SD는 더 크게 표시.
+	# SD 애니/일러스트(있으면) → 픽셀 → 도형. SD는 더 크게 표시.
 	var ekey := String(e.get("sprite", ""))
 	var has_sd := ResourceLoader.exists("res://assets/sd/%s.png" % ekey)
 	var edisp := (r * 3.8) if has_sd else (r * 2.7)
 	var etint: Color = Color.WHITE if has_sd else e.get("tint", Color.WHITE)
-	var spr := _char_sprite(ekey, edisp, etint)
-	if spr != null:
-		root.add_child(spr)
+	var vis := _make_char(ekey, edisp, etint)
+	if vis != null:
+		enemy["anim"] = vis if vis is AnimatedSprite2D else null
+		root.add_child(vis)
 		return root
 	# 외곽선
 	root.add_child(_circle_poly(Vector2(0, -r), r + 2.5, Color(0.05, 0.04, 0.07)))
@@ -1763,9 +1843,10 @@ func _auto_buy_upgrades() -> void:
 func _player_attack() -> void:
 	if enemy.is_empty() or enemy.get("dying", false):
 		return
-	# 살짝 전진 후 복귀(타격감)
+	# 살짝 전진 후 복귀(타격감) + 공격 애니
+	_play_char_anim(hero_anim, "attack")
 	var tw := create_tween()
-	tw.tween_property(hero, "position:x", HERO_X + 26, 0.08).set_trans(Tween.TRANS_QUAD)
+	tw.tween_property(hero, "position:x", HERO_X + 22, 0.08).set_trans(Tween.TRANS_QUAD)
 	tw.tween_property(hero, "position:x", HERO_X, 0.12)
 	var crit: bool = randf() < p_crit
 	var dmg: int = p_atk
@@ -1773,6 +1854,7 @@ func _player_attack() -> void:
 		dmg = int(round(dmg * p_crit_mult))
 	enemy["hp"] = int(enemy["hp"]) - dmg
 	_play("crit" if crit else "slash")
+	_play_char_anim(enemy.get("anim"), "hit")
 	if crit:
 		_hitstop(0.05)
 	_hit_flash(enemy_node)
@@ -1794,12 +1876,14 @@ func _enemy_attack() -> void:
 		if boss_atk_count % 3 == 0:
 			_boss_heavy()
 			return
+	_play_char_anim(enemy.get("anim"), "attack")
 	var tw := create_tween()
 	tw.tween_property(enemy_node, "position:x", ENEMY_X - 24, 0.09)
 	tw.tween_property(enemy_node, "position:x", ENEMY_X, 0.12)
 	var dmg: int = maxi(1, int(enemy["atk"]) - p_def)
 	p_hp -= dmg
 	_play("hit")
+	_play_char_anim(hero_anim, "hit")
 	_hit_flash(hero)
 	_float_text(Vector2(HERO_X, GROUND_Y - 150), str(dmg), Color(1.0, 0.5, 0.5), false)
 	_update_hero_hp()
@@ -1925,8 +2009,10 @@ func _enemy_die() -> void:
 	_check_achievements()
 	_play("boss_victory" if was_boss else "")
 	_spawn_hit_burst(Vector2(ENEMY_X, GROUND_Y - enemy["r"]), Color(enemy["color"]).lightened(0.2), 22 if was_boss else 12)
+	_play_char_anim(enemy.get("anim"), "death")
 	if is_instance_valid(enemy_node):
 		var tw := create_tween()
+		tw.tween_interval(0.25)   # death 애니 잠깐 보여주고
 		tw.tween_property(enemy_node, "scale", Vector2(0.1, 0.1), 0.22)
 		tw.parallel().tween_property(enemy_node, "modulate", Color(1, 1, 1, 0), 0.22)
 	if is_instance_valid(enemy_hp_bg): enemy_hp_bg.visible = false
