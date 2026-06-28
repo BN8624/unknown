@@ -1860,11 +1860,16 @@ func _auto_buy_upgrades() -> void:
 func _player_attack() -> void:
 	if enemy.is_empty() or enemy.get("dying", false):
 		return
-	# 살짝 전진 후 복귀(타격감) + 공격 애니
+	# 적에게 돌진 → 칼 베기 회전 → 복귀(공격 프레임 아트가 약해 코드로 동작 보강)
 	_play_char_anim(hero_anim, "attack")
+	var lunge_x: float = ENEMY_X - enemy["r"] - 40.0
 	var tw := create_tween()
-	tw.tween_property(hero, "position:x", HERO_X + 22, 0.08).set_trans(Tween.TRANS_QUAD)
-	tw.tween_property(hero, "position:x", HERO_X, 0.12)
+	tw.tween_property(hero, "position:x", lunge_x, 0.10).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.tween_property(hero, "position:x", HERO_X, 0.16).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	if hero_anim != null and is_instance_valid(hero_vis):   # 발끝 피벗으로 앞으로 내려치는 베기
+		var rt := create_tween()
+		rt.tween_property(hero_vis, "rotation", 0.42, 0.10).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		rt.tween_property(hero_vis, "rotation", 0.0, 0.18).set_trans(Tween.TRANS_QUAD)
 	var crit: bool = randf() < p_crit
 	var dmg: int = p_atk
 	if crit:
