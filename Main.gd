@@ -635,13 +635,13 @@ func _build_battle_area() -> void:
 	var hbg := ColorRect.new()
 	hbg.color = Color(0, 0, 0, 0.6)
 	hbg.size = Vector2(86, 11)
-	hbg.position = Vector2(HERO_X - 43, GROUND_Y - 150)
+	hbg.position = Vector2(HERO_X - 43, GROUND_Y - 186)
 	hbg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(hbg)
 	hero_hp_fill = ColorRect.new()
 	hero_hp_fill.color = COL_HP
 	hero_hp_fill.size = Vector2(82, 7)
-	hero_hp_fill.position = Vector2(HERO_X - 41, GROUND_Y - 148)
+	hero_hp_fill.position = Vector2(HERO_X - 41, GROUND_Y - 184)
 	hero_hp_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(hero_hp_fill)
 	var hname := _new_label("균열기사", 16, COL_DIM)
@@ -1468,6 +1468,13 @@ void fragment() {
 const ANIM_STATES := ["idle", "attack", "hit", "death"]
 
 # 캐릭터 비주얼 노드: 애니 시트가 있으면 AnimatedSprite2D, 없으면 정적 Sprite2D(SD 또는 픽셀).
+# 캐릭터에 상시 위아래 바브(까딱) 모션. 스프라이트 프레임 외에 큰 동작을 보장.
+func _bob(node: Node2D, amp: float, period := 0.55) -> void:
+	var t := node.create_tween().set_loops()
+	t.tween_property(node, "position:y", -amp, period).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	t.tween_property(node, "position:y", 0.0, period).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+
 func _make_char(name: String, disp_h: float, tint := Color.WHITE) -> CanvasItem:
 	var anim := _build_anim(name, disp_h, tint)
 	if anim != null:
@@ -1596,7 +1603,10 @@ func _make_hero() -> Node2D:
 		hero_vis = vis
 		hero_anim = vis if vis is AnimatedSprite2D else null
 		hero_sprite = vis if vis is Sprite2D else null
-		root.add_child(vis)
+		var bob := Node2D.new()
+		root.add_child(bob)
+		bob.add_child(vis)
+		_bob(bob, 5.0)
 		return root
 	# 폴백: 절차적 도형 영웅
 	return _make_hero_shapes(root)
@@ -1674,11 +1684,15 @@ func _make_enemy(e: Dictionary) -> Node2D:
 	var ekey := String(e.get("sprite", ""))
 	var has_sd := ResourceLoader.exists("res://assets/sd/%s.png" % ekey)
 	var edisp := (r * 3.8) if has_sd else (r * 2.7)
+	e["disp"] = edisp   # 체력바를 머리 위에 띄우기 위한 표시 높이
 	var etint: Color = Color.WHITE if has_sd else e.get("tint", Color.WHITE)
 	var vis := _make_char(ekey, edisp, etint)
 	if vis != null:
 		enemy["anim"] = vis if vis is AnimatedSprite2D else null
-		root.add_child(vis)
+		var bob := Node2D.new()
+		root.add_child(bob)
+		bob.add_child(vis)
+		_bob(bob, 4.0, 0.5 if not e["boss"] else 0.7)
 		return root
 	# 외곽선
 	root.add_child(_circle_poly(Vector2(0, -r), r + 2.5, Color(0.05, 0.04, 0.07)))
@@ -1720,7 +1734,8 @@ func _spawn_enemy() -> void:
 	slide.tween_property(enemy_node, "position:x", ENEMY_X, 0.35).set_trans(Tween.TRANS_QUAD)
 
 	var bar_w: float = 96.0 if not enemy["boss"] else 220.0
-	var top: float = GROUND_Y - (enemy["r"] * 2.0) - 30.0
+	# 스프라이트 머리(=GROUND_Y - 표시높이) 위로 띄워 캐릭터를 가리지 않게
+	var top: float = GROUND_Y - float(enemy.get("disp", enemy["r"] * 3.8)) - 16.0
 	enemy_hp_bg = ColorRect.new()
 	enemy_hp_bg.color = Color(0, 0, 0, 0.6)
 	enemy_hp_bg.size = Vector2(bar_w + 4, 13)
@@ -2396,24 +2411,13 @@ func _new_panel(rect: Rect2, col: Color) -> Panel:
 	p.position = rect.position
 	p.size = rect.size
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	# 9슬라이스 텍스처 패널(금테 네이비) 우선, 없으면 플랫
-	var tname := "ui_panel_hi" if col == COL_PANEL_HI else "ui_panel"
-	var tpath := "res://assets/ui/%s.png" % tname
-	if ResourceLoader.exists(tpath):
-		var st := StyleBoxTexture.new()
-		st.texture = load(tpath)
-		st.set_texture_margin_all(26)
-		st.content_margin_left = 16; st.content_margin_right = 16
-		st.content_margin_top = 12; st.content_margin_bottom = 12
-		p.add_theme_stylebox_override("panel", st)
-		return p
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = col
 	sb.set_corner_radius_all(16)
 	sb.border_color = COL_BORDER
-	sb.set_border_width_all(2)
+	sb.set_border_width_all(1)
 	sb.border_width_top = 1
-	sb.border_width_bottom = 3
+	sb.border_width_bottom = 2
 	sb.shadow_color = COL_SHADOW
 	sb.shadow_size = 8
 	sb.shadow_offset = Vector2(0, 4)
@@ -2446,27 +2450,11 @@ func _btn_box(bg: Color, top_bevel: bool) -> StyleBoxFlat:
 	return s
 
 
-func _btn_tex(name: String) -> StyleBoxTexture:
-	var st := StyleBoxTexture.new()
-	st.texture = load("res://assets/ui/%s.png" % name)
-	st.set_texture_margin_all(22)
-	st.content_margin_left = 14; st.content_margin_right = 14
-	st.content_margin_top = 8; st.content_margin_bottom = 10
-	return st
-
-
 func _style_button(b: Button) -> void:
-	if ResourceLoader.exists("res://assets/ui/ui_btn_normal.png"):
-		b.add_theme_stylebox_override("normal", _btn_tex("ui_btn_normal"))
-		b.add_theme_stylebox_override("hover", _btn_tex("ui_btn_normal"))
-		b.add_theme_stylebox_override("pressed", _btn_tex("ui_btn_pressed"))
-		b.add_theme_stylebox_override("disabled", _btn_tex("ui_btn_disabled"))
-	else:
-		var normal := _btn_box(COL_BTN, true)
-		b.add_theme_stylebox_override("normal", normal)
-		b.add_theme_stylebox_override("hover", _btn_box(COL_BTN_HI, true))
-		b.add_theme_stylebox_override("pressed", _btn_box(COL_BTN_HI.darkened(0.1), false))
-		b.add_theme_stylebox_override("disabled", _btn_box(Color(0.14, 0.12, 0.20), true))
+	b.add_theme_stylebox_override("normal", _btn_box(COL_BTN, true))
+	b.add_theme_stylebox_override("hover", _btn_box(COL_BTN_HI, true))
+	b.add_theme_stylebox_override("pressed", _btn_box(COL_BTN_HI.darkened(0.1), false))
+	b.add_theme_stylebox_override("disabled", _btn_box(Color(0.14, 0.12, 0.20), true))
 	b.add_theme_color_override("font_color", COL_TEXT)
 	b.add_theme_color_override("font_hover_color", Color(1, 1, 1))
 	b.add_theme_color_override("font_disabled_color", Color(0.5, 0.47, 0.6))
