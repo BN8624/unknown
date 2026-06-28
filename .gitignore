@@ -21,3 +21,5 @@ assets/ui/*_sheet.png
 
 # 아트 납품 원본 폴더(대용량 마스터·소스) — 사용본만 assets/sd·ui에 복사
 assets/art_order_test_delivery/
+assets/art_order_final_delivery/
+assets/art_order_final_delivery.zip
